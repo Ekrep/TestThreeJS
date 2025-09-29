@@ -9,10 +9,10 @@
     </style>
   </head>
   <body>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/webxr/ARButton.js"></script>
+    <script type="module">
+      import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js';
+      import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/webxr/ARButton.js';
 
-    <script>
       let scene, camera, renderer, cube;
 
       // Renderer (WebXR aktif)
@@ -22,7 +22,7 @@
       document.body.appendChild(renderer.domElement);
 
       // AR başlatma butonu
-      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ["hit-test"] }));
+      document.body.appendChild(ARButton.createButton(renderer));
 
       // Sahne
       scene = new THREE.Scene();
