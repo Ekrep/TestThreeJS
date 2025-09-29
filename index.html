@@ -2,52 +2,94 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>WebGazer Demo</title>
+  <title>IPD Measurement</title>
   <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-    }
-    #overlay {
+    body { margin: 0; background: black; overflow: hidden; }
+    video, canvas {
       position: absolute;
       top: 0;
       left: 0;
       width: 100vw;
       height: 100vh;
-      pointer-events: none;
+      object-fit: cover;
+    }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: lime;
+      font-family: monospace;
+      font-size: 20px;
+      background: rgba(0,0,0,0.5);
+      padding: 5px 10px;
+      border-radius: 5px;
     }
   </style>
 </head>
 <body>
+  <video id="video" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
+  <div id="info">IPD: -- px</div>
 
-  <!-- WebGazer kütüphanesi -->
-  <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
+
   <script>
-    window.onload = async () => {
+    async function run() {
+      const video = document.getElementById("video");
       const overlay = document.getElementById("overlay");
       const ctx = overlay.getContext("2d");
+      const info = document.getElementById("info");
 
-      overlay.width = window.innerWidth;
-      overlay.height = window.innerHeight;
+      // Kamera aç
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
 
-      // WebGazer başlat
-      webgazer.setRegression("ridge")
-        .setGazeListener((data, elapsedTime) => {
-          if (!data) return;
+      const model = await faceLandmarksDetection.load(
+        faceLandmarksDetection.SupportedPackages.mediapipeFacemesh
+      );
 
-          const x = data.x;
-          const y = data.y;
+      video.onloadeddata = async () => {
+        overlay.width = video.videoWidth;
+        overlay.height = video.videoHeight;
 
-          // Overlay'e nokta çiz
+        async function detect() {
+          const predictions = await model.estimateFaces({ input: video });
           ctx.clearRect(0, 0, overlay.width, overlay.height);
-          ctx.beginPath();
-          ctx.arc(x, y, 15, 0, 2 * Math.PI);
-          ctx.fillStyle = "rgba(255,0,0,0.5)";
-          ctx.fill();
-        })
-        .begin();
-    };
+
+          if (predictions.length > 0) {
+            const keypoints = predictions[0].keypoints;
+
+            // Sol ve sağ göz bebeği noktaları
+            const leftEye = keypoints[468];
+            const rightEye = keypoints[473];
+
+            // Çizim
+            ctx.fillStyle = "red";
+            ctx.beginPath();
+            ctx.arc(leftEye.x, leftEye.y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(rightEye.x, rightEye.y, 5, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // Piksel mesafesi
+            const dx = rightEye.x - leftEye.x;
+            const dy = rightEye.y - leftEye.y;
+            const pixelDistance = Math.sqrt(dx*dx + dy*dy);
+
+            info.innerText = "IPD: " + pixelDistance.toFixed(2) + " px";
+          }
+
+          requestAnimationFrame(detect);
+        }
+
+        detect();
+      };
+    }
+    run();
   </script>
 </body>
 </html>
