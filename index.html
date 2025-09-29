@@ -1,39 +1,69 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Kamera Görüntüsü</title>
-    <style>
-      body {
-        margin: 0;
-        overflow: hidden;
-        background: black;
-      }
-      video {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100vw;
-        height: 100vh;
-        object-fit: cover; /* Ekranı doldurur */
-      }
-    </style>
-  </head>
-  <body>
-    <video id="camera" autoplay playsinline></video>
+<head>
+  <meta charset="UTF-8" />
+  <title>Kamera + Göz Takibi</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    video, canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
+    #overlay {
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <video id="camera" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
 
-    <script>
-      async function startCamera() {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          const video = document.getElementById("camera");
-          video.srcObject = stream;
-        } catch (err) {
-          console.error("Kamera izni alınamadı:", err);
-        }
-      }
+  <script src="https://unpkg.com/webgazer/dist/webgazer.min.js"></script>
+  <script>
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = document.getElementById("camera");
+        video.srcObject = stream;
 
-      startCamera();
-    </script>
-  </body>
+        // WebGazer başlat
+        webgazer.setVideoElement(video);
+        webgazer.setRegression('ridge'); // varsayılan regresyon modeli
+        webgazer.begin();
+
+        // Göz tahmini dinleyici
+        webgazer.setGazeListener((data, elapsedTime) => {
+          if (!data) return;
+          const x = data.x; // viewport içindeki x koordinatı
+          const y = data.y; // viewport içindeki y koordinatı
+          drawGaze(x, y);
+        });
+
+        // Göz takibi için calibrate vs ekleyebilirsin.
+
+      } catch (err) {
+        console.error("Kamera izni alınamadı:", err);
+      }
+    }
+
+    function drawGaze(x, y) {
+      const canvas = document.getElementById("overlay");
+      const ctx = canvas.getContext("2d");
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+      ctx.arc(x, y, 20, 0, 2 * Math.PI);
+      ctx.fillStyle = "rgba(255,0,0,0.5)";
+      ctx.fill();
+    }
+
+    window.onload = startCamera;
+  </script>
+</body>
 </html>
