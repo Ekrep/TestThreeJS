@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>IPD Ölçüm</title>
+  <title>Gözlere Nokta</title>
   <style>
     body { margin: 0; background: black; overflow: hidden; }
     video, canvas {
@@ -11,21 +11,11 @@
       width: 100vw; height: 100vh;
       object-fit: cover;
     }
-    #info {
-      position: absolute;
-      top: 10px; left: 10px;
-      color: lime;
-      font-family: monospace;
-      font-size: 20px;
-      background: rgba(0,0,0,0.5);
-      padding: 5px 10px; border-radius: 5px;
-    }
   </style>
 </head>
 <body>
   <video id="video" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
-  <div id="info">IPD: -- px</div>
 
   <!-- TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -44,14 +34,13 @@
       const video = document.getElementById("video");
       const overlay = document.getElementById("overlay");
       const ctx = overlay.getContext("2d");
-      const info = document.getElementById("info");
 
       // Kamera aç
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
       await video.play();
 
-      // Model yükle (yeni API)
+      // Model yükle
       const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
       const detector = await faceLandmarksDetection.createDetector(model, {
         runtime: 'tfjs',
@@ -72,21 +61,15 @@
           const leftIris = avg([keypoints[468], keypoints[469], keypoints[470], keypoints[471]]);
           const rightIris = avg([keypoints[472], keypoints[473], keypoints[474], keypoints[475]]);
 
-          // Çizim
+          // Çizim – kırmızı noktalar
           ctx.fillStyle = "red";
           ctx.beginPath();
           ctx.arc(leftIris.x, leftIris.y, 5, 0, 2 * Math.PI);
           ctx.fill();
+
           ctx.beginPath();
           ctx.arc(rightIris.x, rightIris.y, 5, 0, 2 * Math.PI);
           ctx.fill();
-
-          // Piksel mesafesi
-          const dx = rightIris.x - leftIris.x;
-          const dy = rightIris.y - leftIris.y;
-          const pixelDist = Math.sqrt(dx*dx + dy*dy);
-
-          info.innerText = "IPD: " + pixelDist.toFixed(2) + " px";
         }
 
         requestAnimationFrame(detectLoop);
