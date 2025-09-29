@@ -27,6 +27,7 @@
   <canvas id="overlay"></canvas>
   <div id="info">IPD: -- px</div>
 
+  <!-- TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -42,44 +43,42 @@
       // Kamera aç
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
-
       await video.play();
 
-      // Yeni API ile model yükleme
+      // Modeli yeni API ile yükle
       const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
-      const detectorConfig = {
-        runtime: 'tfjs', // veya 'mediapipe'
-        refineLandmarks: true, // iris gibi ekstra noktalar da istersek
-      };
-      const detector = await faceLandmarksDetection.createDetector(model, detectorConfig);
+      const detector = await faceLandmarksDetection.createDetector(model, {
+        runtime: 'tfjs',
+        refineLandmarks: true
+      });
 
       overlay.width = video.videoWidth;
       overlay.height = video.videoHeight;
 
       async function detectLoop() {
-        const faces = await detector.estimateFaces(video, { flipHorizontal: false });
+        const faces = await detector.estimateFaces(video);
         ctx.clearRect(0, 0, overlay.width, overlay.height);
 
         if (faces.length > 0) {
           const keypoints = faces[0].keypoints;
 
-          // Göz bebekleri için uygun index’leri bulman gerekebilir
-          const leftEye = keypoints.find(p => p.name === 'leftEye');  
-          const rightEye = keypoints.find(p => p.name === 'rightEye');
+          // örnek: iris noktaları (göz bebeği daha doğru)
+          const leftIris = keypoints.find(p => p.name === "leftEyeIris");
+          const rightIris = keypoints.find(p => p.name === "rightEyeIris");
 
-          if (leftEye && rightEye) {
-            // çizim
+          if (leftIris && rightIris) {
             ctx.fillStyle = "red";
             ctx.beginPath();
-            ctx.arc(leftEye.x, leftEye.y, 5, 0, 2 * Math.PI);
+            ctx.arc(leftIris.x, leftIris.y, 5, 0, 2 * Math.PI);
             ctx.fill();
             ctx.beginPath();
-            ctx.arc(rightEye.x, rightEye.y, 5, 0, 2 * Math.PI);
+            ctx.arc(rightIris.x, rightIris.y, 5, 0, 2 * Math.PI);
             ctx.fill();
 
-            const dx = rightEye.x - leftEye.x;
-            const dy = rightEye.y - leftEye.y;
+            const dx = rightIris.x - leftIris.x;
+            const dy = rightIris.y - leftIris.y;
             const pixelDist = Math.sqrt(dx*dx + dy*dy);
+
             info.innerText = "IPD: " + pixelDist.toFixed(2) + " px";
           }
         }
@@ -90,9 +89,7 @@
       detectLoop();
     }
 
-    run().catch(err => {
-      console.error("Hata:", err);
-    });
+    run().catch(err => console.error("Hata:", err));
   </script>
 </body>
 </html>
