@@ -1,28 +1,24 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>IPD Measurement</title>
+  <meta charset="UTF-8" />
+  <title>IPD Ölçüm (Yeni API)</title>
   <style>
     body { margin: 0; background: black; overflow: hidden; }
     video, canvas {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
       object-fit: cover;
     }
     #info {
       position: absolute;
-      top: 10px;
-      left: 10px;
+      top: 10px; left: 10px;
       color: lime;
       font-family: monospace;
       font-size: 20px;
       background: rgba(0,0,0,0.5);
-      padding: 5px 10px;
-      border-radius: 5px;
+      padding: 5px 10px; border-radius: 5px;
     }
   </style>
 </head>
@@ -31,7 +27,6 @@
   <canvas id="overlay"></canvas>
   <div id="info">IPD: -- px</div>
 
-  <!-- TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -48,25 +43,32 @@
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
 
-      // Modeli yükle (string ile)
-      const model = await faceLandmarksDetection.load("mediapipeFacemesh");
+      await video.play();
 
-      video.onloadeddata = async () => {
-        overlay.width = video.videoWidth;
-        overlay.height = video.videoHeight;
+      // Yeni API ile model yükleme
+      const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
+      const detectorConfig = {
+        runtime: 'tfjs', // veya 'mediapipe'
+        refineLandmarks: true, // iris gibi ekstra noktalar da istersek
+      };
+      const detector = await faceLandmarksDetection.createDetector(model, detectorConfig);
 
-        async function detect() {
-          const predictions = await model.estimateFaces({ input: video });
-          ctx.clearRect(0, 0, overlay.width, overlay.height);
+      overlay.width = video.videoWidth;
+      overlay.height = video.videoHeight;
 
-          if (predictions.length > 0) {
-            const keypoints = predictions[0].keypoints;
+      async function detectLoop() {
+        const faces = await detector.estimateFaces(video, { flipHorizontal: false });
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-            // Sol ve sağ göz bebeği noktaları (approx index)
-            const leftEye = keypoints[468];
-            const rightEye = keypoints[473];
+        if (faces.length > 0) {
+          const keypoints = faces[0].keypoints;
 
-            // Çizim
+          // Göz bebekleri için uygun index’leri bulman gerekebilir
+          const leftEye = keypoints.find(p => p.name === 'leftEye');  
+          const rightEye = keypoints.find(p => p.name === 'rightEye');
+
+          if (leftEye && rightEye) {
+            // çizim
             ctx.fillStyle = "red";
             ctx.beginPath();
             ctx.arc(leftEye.x, leftEye.y, 5, 0, 2 * Math.PI);
@@ -75,21 +77,22 @@
             ctx.arc(rightEye.x, rightEye.y, 5, 0, 2 * Math.PI);
             ctx.fill();
 
-            // Piksel mesafesi
             const dx = rightEye.x - leftEye.x;
             const dy = rightEye.y - leftEye.y;
-            const pixelDistance = Math.sqrt(dx*dx + dy*dy);
-
-            info.innerText = "IPD: " + pixelDistance.toFixed(2) + " px";
+            const pixelDist = Math.sqrt(dx*dx + dy*dy);
+            info.innerText = "IPD: " + pixelDist.toFixed(2) + " px";
           }
-
-          requestAnimationFrame(detect);
         }
 
-        detect();
-      };
+        requestAnimationFrame(detectLoop);
+      }
+
+      detectLoop();
     }
-    run();
+
+    run().catch(err => {
+      console.error("Hata:", err);
+    });
   </script>
 </body>
 </html>
