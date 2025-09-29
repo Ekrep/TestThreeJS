@@ -31,6 +31,7 @@
   <canvas id="overlay"></canvas>
   <div id="info">IPD: -- px</div>
 
+  <!-- TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
@@ -47,9 +48,8 @@
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
 
-      const model = await faceLandmarksDetection.load(
-        faceLandmarksDetection.SupportedPackages.mediapipeFacemesh
-      );
+      // Modeli yükle (string ile)
+      const model = await faceLandmarksDetection.load("mediapipeFacemesh");
 
       video.onloadeddata = async () => {
         overlay.width = video.videoWidth;
@@ -62,7 +62,7 @@
           if (predictions.length > 0) {
             const keypoints = predictions[0].keypoints;
 
-            // Sol ve sağ göz bebeği noktaları
+            // Sol ve sağ göz bebeği noktaları (approx index)
             const leftEye = keypoints[468];
             const rightEye = keypoints[473];
 
