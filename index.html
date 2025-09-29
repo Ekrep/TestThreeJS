@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>IPD Ölçüm (Yeni API)</title>
+  <title>IPD Ölçüm</title>
   <style>
     body { margin: 0; background: black; overflow: hidden; }
     video, canvas {
@@ -34,6 +34,12 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
 
   <script>
+    function avg(points) {
+      let x = 0, y = 0;
+      for (let p of points) { x += p.x; y += p.y; }
+      return { x: x / points.length, y: y / points.length };
+    }
+
     async function run() {
       const video = document.getElementById("video");
       const overlay = document.getElementById("overlay");
@@ -45,7 +51,7 @@
       video.srcObject = stream;
       await video.play();
 
-      // Modeli yeni API ile yükle
+      // Model yükle (yeni API)
       const model = faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh;
       const detector = await faceLandmarksDetection.createDetector(model, {
         runtime: 'tfjs',
@@ -62,25 +68,25 @@
         if (faces.length > 0) {
           const keypoints = faces[0].keypoints;
 
-          // örnek: iris noktaları (göz bebeği daha doğru)
-          const leftIris = keypoints.find(p => p.name === "leftEyeIris");
-          const rightIris = keypoints.find(p => p.name === "rightEyeIris");
+          // Sol iris (468–471), Sağ iris (472–475)
+          const leftIris = avg([keypoints[468], keypoints[469], keypoints[470], keypoints[471]]);
+          const rightIris = avg([keypoints[472], keypoints[473], keypoints[474], keypoints[475]]);
 
-          if (leftIris && rightIris) {
-            ctx.fillStyle = "red";
-            ctx.beginPath();
-            ctx.arc(leftIris.x, leftIris.y, 5, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(rightIris.x, rightIris.y, 5, 0, 2 * Math.PI);
-            ctx.fill();
+          // Çizim
+          ctx.fillStyle = "red";
+          ctx.beginPath();
+          ctx.arc(leftIris.x, leftIris.y, 5, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(rightIris.x, rightIris.y, 5, 0, 2 * Math.PI);
+          ctx.fill();
 
-            const dx = rightIris.x - leftIris.x;
-            const dy = rightIris.y - leftIris.y;
-            const pixelDist = Math.sqrt(dx*dx + dy*dy);
+          // Piksel mesafesi
+          const dx = rightIris.x - leftIris.x;
+          const dy = rightIris.y - leftIris.y;
+          const pixelDist = Math.sqrt(dx*dx + dy*dy);
 
-            info.innerText = "IPD: " + pixelDist.toFixed(2) + " px";
-          }
+          info.innerText = "IPD: " + pixelDist.toFixed(2) + " px";
         }
 
         requestAnimationFrame(detectLoop);
