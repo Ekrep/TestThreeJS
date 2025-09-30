@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8" />
-  <title>FaceMesh IPD (Sadece JS)</title>
+  <title>FaceMesh IPD (Doğrudan getUserMedia)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body{margin:0;background:#111;color:#eee;font-family:system-ui,Segoe UI,Arial}
@@ -21,6 +21,7 @@
     <button id="stopBtn" disabled>Durdur</button>
     <span id="ipd">IPD: -- mm</span>
     <span id="httpsWarn" class="warn" hidden>⚠ Kamera için HTTPS veya localhost gerekir.</span>
+    <span id="err" class="warn"></span>
   </header>
 
   <div id="wrap">
@@ -30,8 +31,7 @@
   <!-- Gizli video kaynağı -->
   <video id="video" playsinline muted style="position:fixed;opacity:0;pointer-events:none;width:0;height:0"></video>
 
-  <!-- MediaPipe -->
-  <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <!-- Sadece FaceMesh (camera_utils YOK) -->
   <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 
   <script>
@@ -45,25 +45,22 @@
     const ipdEl = document.getElementById('ipd');
     const startBtn = document.getElementById('startBtn');
     const stopBtn  = document.getElementById('stopBtn');
+    const errEl = document.getElementById('err');
 
-    let cam = null;
-    let fm  = null;
+    let stream = null;
+    let fm = null;
     let running = false;
-    let animReq = null;
+    let raf = null;
 
-    // Küçük yardımcılar
     const mean2D = (pts) => {
       let sx=0, sy=0; for (const p of pts){ sx+=p.x; sy+=p.y; }
       return { x:sx/pts.length, y:sy/pts.length };
     };
     const toPx = (p, W, H) => ({ x: p.x * W, y: p.y * H });
-
     const irisDiameterPx = (arrPx) => {
-      // 5 nokta üstünden birkaç karşıt çiftin ortalaması
       const d = (i,j)=>Math.hypot(arrPx[i].x-arrPx[j].x, arrPx[i].y-arrPx[j].y);
       return (d(0,2) + d(1,3) + d(2,4)) / 3;
     };
-
     const drawDot = (x,y,r=4) => {
       ctx.beginPath();
       ctx.arc(x,y,r,0,Math.PI*2);
@@ -74,43 +71,112 @@
       ctx.shadowBlur = 0;
     };
 
+    async function openCamera() {
+      // Bazı Mac’lerde arka/ön kamera seçimi fark yaratabilir:
+      const constraints = {
+        audio: false,
+        video: {
+          width: { ideal: 640 },
+          height:{ ideal: 480 },
+          facingMode: 'user' // Mac’te genelde fark etmez ama mobile’da ön kamera
+        }
+      };
+      // İzin ekranı burada çıkar
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      await video.play(); // autoplay’i garanti et
+      return stream;
+    }
+
     async function start() {
       if (running) return;
+      errEl.textContent = '';
+      if (!isHttps) {
+        errEl.textContent = 'HTTPS/localhost değil — kamera engellenebilir.';
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        errEl.textContent = 'Tarayıcı getUserMedia desteklemiyor.';
+        return;
+      }
+
       running = true;
       startBtn.disabled = true;
       stopBtn.disabled = false;
 
-      // FaceMesh hazırla
+      try {
+        await openCamera();
+      } catch(e) {
+        console.error('Kamera açılamadı:', e);
+        errEl.textContent = 'Kamera açılamadı: ' + (e.message || e.name || e);
+        stop();
+        return;
+      }
+
+      // FaceMesh başlat
       fm = new FaceMesh.FaceMesh({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
       });
       fm.setOptions({
         maxNumFaces: 1,
-        refineLandmarks: true,   // İris noktaları için şart
+        refineLandmarks: true,
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
       });
 
-      fm.onResults(onResults);
+      // Render döngüsü: video karesini gönder
+      const loop = async () => {
+        if (!running) return;
+        // canvasi video boyutuna eşitle
+        const W = canvas.width = video.videoWidth || 640;
+        const H = canvas.height = video.videoHeight || 480;
+        try {
+          await fm.send({ image: video }); // sonuç geldiğinde onResults tetiklenecek
+        } catch (e) {
+          console.warn('fm.send hata:', e);
+        }
+        raf = requestAnimationFrame(loop);
+      };
 
-      // Kamera başlat
-      cam = new Camera.Camera(video, {
-        onFrame: async () => { await fm.send({ image: video }); },
-        width: 640,
-        height: 480
+      fm.onResults((res) => {
+        const W = canvas.width  = video.videoWidth || 640;
+        const H = canvas.height = video.videoHeight || 480;
+        ctx.save();
+        ctx.clearRect(0,0,W,H);
+        ctx.drawImage(video, 0, 0, W, H);
+
+        if (!res.multiFaceLandmarks || !res.multiFaceLandmarks.length) {
+          ctx.restore();
+          return;
+        }
+        const lm = res.multiFaceLandmarks[0];
+        const L = [lm[468], lm[469], lm[470], lm[471], lm[472]];
+        const R = [lm[473], lm[474], lm[475], lm[476], lm[477]];
+
+        const lC = mean2D(L), rC = mean2D(R);
+        const lPx = toPx(lC, W, H), rPx = toPx(rC, W, H);
+
+        const LPx = L.map(p => toPx(p, W, H));
+        const RPx = R.map(p => toPx(p, W, H));
+        const irisDiaPx = (irisDiameterPx(LPx) + irisDiameterPx(RPx)) * 0.5;
+
+        const mmPerPx = 11.7 / Math.max(irisDiaPx, 1e-6);
+        const ipdPx = Math.hypot(lPx.x - rPx.x, lPx.y - rPx.y);
+        const ipdMm = ipdPx * mmPerPx;
+
+        drawDot(lPx.x, lPx.y, 4);
+        drawDot(rPx.x, rPx.y, 4);
+
+        const label = `IPD: ${ipdMm.toFixed(1)} mm`;
+        ctx.font = '16px ui-sans-serif, system-ui, Arial';
+        ctx.fillStyle = 'rgba(0,0,0,.6)';
+        ctx.fillRect(8, 8, ctx.measureText(label).width + 12, 26);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, 14, 28);
+        ipdEl.textContent = label;
+
+        ctx.restore();
       });
 
-      try {
-        await cam.start();
-      } catch(e) {
-        console.error('Kamera başlatılamadı:', e);
-        ipdEl.textContent = 'IPD: kamera izni gerekli';
-        stop();
-        return;
-      }
-
-      // Canvas sürekli çizim (gerekirse ek overlay efekti vs.)
-      const loop = () => { animReq = requestAnimationFrame(loop); };
       loop();
     }
 
@@ -119,85 +185,19 @@
       startBtn.disabled = false;
       stopBtn.disabled = true;
 
-      if (cam && cam.stop) cam.stop();
-      if (video.srcObject) {
-        for (const t of video.srcObject.getTracks()) t.stop();
-        video.srcObject = null;
+      if (raf) cancelAnimationFrame(raf);
+      raf = null;
+
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
       }
-      if (animReq) cancelAnimationFrame(animReq);
-      animReq = null;
-      fm = null;
-      ctx.clearRect(0,0,canvas.width,canvas.height);
       ipdEl.textContent = 'IPD: -- mm';
-    }
-
-    function onResults(res) {
-      const W = canvas.width  = video.videoWidth || 640;
-      const H = canvas.height = video.videoHeight || 480;
-
-      // Video frame'ini canvas'a çiz
-      ctx.save();
-      ctx.clearRect(0,0,W,H);
-      ctx.drawImage(res.image, 0, 0, W, H);
-
-      // Yüz yoksa çık
-      if (!res.multiFaceLandmarks || !res.multiFaceLandmarks.length) {
-        ctx.restore();
-        return;
-      }
-
-      const lm = res.multiFaceLandmarks[0];
-
-      // İris indeksleri (468-472 sol, 473-477 sağ)
-      const L = [lm[468], lm[469], lm[470], lm[471], lm[472]];
-      const R = [lm[473], lm[474], lm[475], lm[476], lm[477]];
-
-      // Merkezler
-      const lC = mean2D(L);
-      const rC = mean2D(R);
-
-      const lPx = toPx(lC, W, H);
-      const rPx = toPx(rC, W, H);
-
-      // İris çapı piksel (ortalama)
-      const LPx = L.map(p => toPx(p, W, H));
-      const RPx = R.map(p => toPx(p, W, H));
-      const lDia = irisDiameterPx(LPx);
-      const rDia = irisDiameterPx(RPx);
-      const irisDiaPx = (lDia + rDia) * 0.5;
-
-      // mm/piksel (ortalama iris çapı ≈ 11.7 mm)
-      const mmPerPx = 11.7 / Math.max(irisDiaPx, 1e-6);
-
-      // IPD piksel → mm
-      const ipdPx = Math.hypot(lPx.x - rPx.x, lPx.y - rPx.y);
-      const ipdMm = ipdPx * mmPerPx;
-
-      // Kırmızı noktalar
-      drawDot(lPx.x, lPx.y, 4);
-      drawDot(rPx.x, rPx.y, 4);
-
-      // IPD overlay
-      const label = `IPD: ${ipdMm.toFixed(1)} mm`;
-      ctx.font = '16px ui-sans-serif, system-ui, Arial';
-      ctx.fillStyle = 'rgba(0,0,0,.6)';
-      ctx.fillRect(8, 8, ctx.measureText(label).width + 12, 26);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(label, 14, 28);
-
-      ipdEl.textContent = label;
-
-      ctx.restore();
+      ctx.clearRect(0,0,canvas.width,canvas.height);
     }
 
     startBtn.addEventListener('click', start);
     stopBtn.addEventListener('click', stop);
-
-    // İsteğe bağlı: otomatik başlat (HTTPS ise)
-    if (isHttps) {
-      // Kullanıcı etkileşimi gerektiren tarayıcılar için butona basmak daha güvenli
-      // start(); // otomatik istersen aç
-    }
   })();
   </script>
 </body>
