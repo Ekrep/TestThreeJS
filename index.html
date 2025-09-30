@@ -24,12 +24,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@1.0.4"></script>
 
   <script>
-    function avg(points) {
-      let x = 0, y = 0;
-      for (let p of points) { x += p.x; y += p.y; }
-      return { x: x / points.length, y: y / points.length };
-    }
-
     async function run() {
       const video = document.getElementById("video");
       const overlay = document.getElementById("overlay");
@@ -57,18 +51,17 @@
         if (faces.length > 0) {
           const keypoints = faces[0].keypoints;
 
-          // Sol iris (468–471), Sağ iris (472–475)
-          const leftIris = avg([keypoints[468], keypoints[469], keypoints[470], keypoints[471]]);
-          const rightIris = avg([keypoints[472], keypoints[473], keypoints[474], keypoints[475]]);
+          // Sol göz kenarı (33), sağ göz kenarı (263)
+          const leftEye = keypoints[33];
+          const rightEye = keypoints[263];
 
-          // Çizim – kırmızı noktalar
           ctx.fillStyle = "red";
           ctx.beginPath();
-          ctx.arc(leftIris.x, leftIris.y, 5, 0, 2 * Math.PI);
+          ctx.arc(leftEye.x, leftEye.y, 5, 0, 2 * Math.PI);
           ctx.fill();
 
           ctx.beginPath();
-          ctx.arc(rightIris.x, rightIris.y, 5, 0, 2 * Math.PI);
+          ctx.arc(rightEye.x, rightEye.y, 5, 0, 2 * Math.PI);
           ctx.fill();
         }
 
