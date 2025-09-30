@@ -2,8 +2,9 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8" />
-  <title>FaceMesh IPD (Doğrudan getUserMedia)</title>
+  <title>FaceMesh IPD (Fix)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
   <style>
     body{margin:0;background:#111;color:#eee;font-family:system-ui,Segoe UI,Arial}
     header{padding:12px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -11,9 +12,12 @@
     button:disabled{opacity:.5;cursor:not-allowed}
     #ipd{font-weight:600;margin-left:8px}
     #wrap{display:grid;place-items:center;padding:8px}
-    canvas{max-width:min(96vw,720px);width:100%;height:auto;background:#000;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+    canvas{max-width:min(96vw,720px);width:100%;height:auto;background:#000;border-radius:12px}
     .warn{color:#f99}
   </style>
+
+  <!-- NOT: async/defer YOK, önce bu yüklenir -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 </head>
 <body>
   <header>
@@ -28,14 +32,10 @@
     <canvas id="view" width="640" height="480"></canvas>
   </div>
 
-  <!-- Gizli video kaynağı -->
   <video id="video" playsinline muted style="position:fixed;opacity:0;pointer-events:none;width:0;height:0"></video>
 
-  <!-- Sadece FaceMesh (camera_utils YOK) -->
-  <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-
   <script>
-  (() => {
+  document.addEventListener('DOMContentLoaded', () => {
     const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
     if (!isHttps) document.getElementById('httpsWarn').hidden = false;
 
@@ -52,6 +52,17 @@
     let running = false;
     let raf = null;
 
+    // ---- Güvenli constructor çözümü ----
+    function getFaceMeshCtor(){
+      // Bazı sürümlerde FaceMesh.FaceMesh, bazılarında FaceMesh direkt constructor
+      const ctor = window.FaceMesh?.FaceMesh || window.FaceMesh;
+      if (typeof ctor !== 'function') {
+        throw new Error('FaceMesh constructor yüklenemedi. CDN engelli mi?');
+      }
+      return ctor;
+    }
+
+    // Yardımcılar
     const mean2D = (pts) => {
       let sx=0, sy=0; for (const p of pts){ sx+=p.x; sy+=p.y; }
       return { x:sx/pts.length, y:sy/pts.length };
@@ -72,70 +83,47 @@
     };
 
     async function openCamera() {
-      // Bazı Mac’lerde arka/ön kamera seçimi fark yaratabilir:
       const constraints = {
         audio: false,
-        video: {
-          width: { ideal: 640 },
-          height:{ ideal: 480 },
-          facingMode: 'user' // Mac’te genelde fark etmez ama mobile’da ön kamera
-        }
+        video: { width: {ideal: 640}, height: {ideal: 480}, facingMode: 'user' }
       };
-      // İzin ekranı burada çıkar
       stream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = stream;
-      await video.play(); // autoplay’i garanti et
-      return stream;
+      await video.play();
     }
 
     async function start() {
       if (running) return;
       errEl.textContent = '';
-      if (!isHttps) {
-        errEl.textContent = 'HTTPS/localhost değil — kamera engellenebilir.';
-      }
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (!navigator.mediaDevices?.getUserMedia) {
         errEl.textContent = 'Tarayıcı getUserMedia desteklemiyor.';
         return;
       }
 
-      running = true;
-      startBtn.disabled = true;
-      stopBtn.disabled = false;
-
       try {
         await openCamera();
       } catch(e) {
-        console.error('Kamera açılamadı:', e);
         errEl.textContent = 'Kamera açılamadı: ' + (e.message || e.name || e);
-        stop();
         return;
       }
 
-      // FaceMesh başlat
-      fm = new FaceMesh.FaceMesh({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-      });
+      // ---- FaceMesh başlat ----
+      try {
+        const FaceMeshCtor = getFaceMeshCtor();
+        fm = new FaceMeshCtor({
+          locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
+        });
+      } catch(e) {
+        errEl.textContent = e.message || e;
+        return;
+      }
+
       fm.setOptions({
         maxNumFaces: 1,
         refineLandmarks: true,
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
       });
-
-      // Render döngüsü: video karesini gönder
-      const loop = async () => {
-        if (!running) return;
-        // canvasi video boyutuna eşitle
-        const W = canvas.width = video.videoWidth || 640;
-        const H = canvas.height = video.videoHeight || 480;
-        try {
-          await fm.send({ image: video }); // sonuç geldiğinde onResults tetiklenecek
-        } catch (e) {
-          console.warn('fm.send hata:', e);
-        }
-        raf = requestAnimationFrame(loop);
-      };
 
       fm.onResults((res) => {
         const W = canvas.width  = video.videoWidth || 640;
@@ -145,20 +133,19 @@
         ctx.drawImage(video, 0, 0, W, H);
 
         if (!res.multiFaceLandmarks || !res.multiFaceLandmarks.length) {
-          ctx.restore();
-          return;
+          ctx.restore(); return;
         }
+
         const lm = res.multiFaceLandmarks[0];
         const L = [lm[468], lm[469], lm[470], lm[471], lm[472]];
         const R = [lm[473], lm[474], lm[475], lm[476], lm[477]];
-
         const lC = mean2D(L), rC = mean2D(R);
-        const lPx = toPx(lC, W, H), rPx = toPx(rC, W, H);
 
+        const lPx = toPx(lC, W, H), rPx = toPx(rC, W, H);
         const LPx = L.map(p => toPx(p, W, H));
         const RPx = R.map(p => toPx(p, W, H));
-        const irisDiaPx = (irisDiameterPx(LPx) + irisDiameterPx(RPx)) * 0.5;
 
+        const irisDiaPx = (irisDiameterPx(LPx) + irisDiameterPx(RPx)) * 0.5;
         const mmPerPx = 11.7 / Math.max(irisDiaPx, 1e-6);
         const ipdPx = Math.hypot(lPx.x - rPx.x, lPx.y - rPx.y);
         const ipdMm = ipdPx * mmPerPx;
@@ -177,6 +164,16 @@
         ctx.restore();
       });
 
+      running = true;
+      startBtn.disabled = true;
+      stopBtn.disabled  = false;
+
+      // Render döngüsü: sürekli fm.send
+      const loop = async () => {
+        if (!running) return;
+        try { await fm.send({ image: video }); } catch(e){}
+        raf = requestAnimationFrame(loop);
+      };
       loop();
     }
 
@@ -185,20 +182,15 @@
       startBtn.disabled = false;
       stopBtn.disabled = true;
 
-      if (raf) cancelAnimationFrame(raf);
-      raf = null;
-
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-      }
+      if (raf) cancelAnimationFrame(raf), raf=null;
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream=null; }
       ipdEl.textContent = 'IPD: -- mm';
       ctx.clearRect(0,0,canvas.width,canvas.height);
     }
 
     startBtn.addEventListener('click', start);
     stopBtn.addEventListener('click', stop);
-  })();
+  });
   </script>
 </body>
 </html>
