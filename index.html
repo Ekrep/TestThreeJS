@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8" />
-  <title>FaceMesh IPD — Nihai (Merkez 468/473, 10Ø, Affine Kalibrasyon)</title>
+  <title>FaceMesh IPD — Affine Kalibrasyonlu</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- favicon 404’u sustur -->
   <link rel="icon" href="data:," />
@@ -119,6 +119,10 @@
       }
       return ctor;
     }
+    const mean2D = (pts) => {
+      let sx=0, sy=0; for (const p of pts){ sx+=p.x; sy+=p.y; }
+      return { x:sx/pts.length, y:sy/pts.length };
+    };
     const toPx = (p, W, H) => ({ x: p.x * W, y: p.y * H });
     const irisDiameterPx = (arrPx) => {
       const d = (i,j)=>Math.hypot(arrPx[i].x-arrPx[j].x, arrPx[i].y-arrPx[j].y);
@@ -133,15 +137,6 @@
       ctx.fill();
       ctx.shadowBlur = 0;
     };
-
-    // Son N'in ortalaması
-    function avgLastN(arr, n){
-      const m = Math.min(arr.length, n);
-      if (m === 0) return NaN;
-      let sum = 0;
-      for (let i = arr.length - m; i < arr.length; i++) sum += arr[i];
-      return sum / m;
-    }
 
     // ---------- Kalite Kontrolleri ----------
     const MAX_VERT_DIFF  = 0.02;  // |lp.y - rp.y| / H
@@ -256,20 +251,16 @@
 
       const lm = res.multiFaceLandmarks[0];
 
-      // *** EN İYİ MERKEZ: doğrudan iris merkez indeksleri ***
-      const lCenter = lm[468]; // left iris center
-      const rCenter = lm[473]; // right iris center
+      // İris noktaları (refineLandmarks:true)
+      const L = [lm[468], lm[469], lm[470], lm[471], lm[472]];
+      const R = [lm[473], lm[474], lm[475], lm[476], lm[477]];
 
-      // Ring noktaları: ölçek (iris çapı) ve kalite kontrol için
-      const Lring = [lm[469], lm[470], lm[471], lm[472]];
-      const Rring = [lm[474], lm[475], lm[476], lm[477]];
+      const lC = mean2D(L), rC = mean2D(R);
+      const lPx = toPx(lC, W, H), rPx = toPx(rC, W, H);
 
-      const lPx = toPx(lCenter, W, H);
-      const rPx = toPx(rCenter, W, H);
-
-      // Sol/Sağ iris çapı (piksel) — ringten
-      const LPx = Lring.map(p => toPx(p, W, H));
-      const RPx = Rring.map(p => toPx(p, W, H));
+      // Sol/Sağ iris çapı (piksel)
+      const LPx = L.map(p => toPx(p, W, H));
+      const RPx = R.map(p => toPx(p, W, H));
       const lDia = irisDiameterPx(LPx);
       const rDia = irisDiameterPx(RPx);
       const irisDiaPx = (lDia + rDia) * 0.5;
@@ -279,13 +270,13 @@
       const irisRatio = Math.abs(lDia - rDia) / Math.max(irisDiaPx, 1e-6);
       const valid = !(irisDiaPx < MIN_IRIS_PX || vertDiff > MAX_VERT_DIFF || irisRatio > IRIS_RATIO_TOL);
 
-      // mm/px (ortalama iris ~11.7mm) — kişi bağımlı hatayı affine kalibrasyon telafi eder
+      // Ölçek: mm/px (ortalama iris ~11.7mm) — kişi bağımlı hatayı affine kalibrasyon telafi eder
       const mmPerPx = 11.7 / Math.max(irisDiaPx, 1e-6);
 
-      // Yalnızca yatay mesafe (poz hatasını azaltır)
+      // Yalnızca yatay mesafe (pozdan gelen kısalmayı azaltır)
       const ipdPxX = Math.abs(lPx.x - rPx.x);
 
-      // İlk tahmin → affine düzelt
+      // İlk tahmin ve affine düzeltme
       const ipdMmEst = ipdPxX * mmPerPx;
       const ipdMmAdj = cal.k * ipdMmEst + cal.b;
 
@@ -293,13 +284,12 @@
       drawDot(lPx.x, lPx.y, 4);
       drawDot(rPx.x, rPx.y, 4);
 
-      // Gösterim: Son 10 ölçümün ortalamasını (10Ø) bastır
+      // Gösterim
       let label;
       if (valid){
         const { ema:filtered } = pushAndFilter(ipdMmAdj);
-        const avg10 = avgLastN(windowVals, 10);
-        const shown = Number.isFinite(avg10) ? avg10 : (filtered ?? ipdMmAdj);
-        label = `IPD (10Ø): ${shown.toFixed(1)} mm`;
+        const shown = (filtered ?? ipdMmAdj);
+        label = `IPD: ${shown.toFixed(1)} mm`;
         ipdEl.textContent = label;
       } else {
         label = `IPD: (kalitesiz kare)`;
@@ -322,12 +312,12 @@
         alert('Geçerli bir PD gir (45–80 mm).'); return;
       }
       // En güncel istikrarlı örnek
-      const sample = (avgLastN(windowVals, 10) ?? ema ?? NaN);
+      const sample = (ema ?? (windowVals.length ? windowVals[Math.floor(windowVals.length/2)] : NaN));
       if (!isFinite(sample) || sample <= 0) {
         alert('Önce birkaç saniye ölçüm alınsın, sonra kalibre et.'); return;
       }
 
-      // Pratik: ölçeği sabit tutup bias ayarla (cihazlar arası sabit farkı düzeltir)
+      // Pratik: ölçeği sabit tutup bias ayarla (telefon-PC sabit farkını düzeltir)
       const newK = cal.k;
       const newB = target - newK * sample;
 
