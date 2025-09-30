@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="tr">
+
 <head>
   <meta charset="utf-8" />
   <title>FaceMesh IPD — Affine Kalibrasyonlu</title>
@@ -7,26 +8,99 @@
   <!-- favicon 404’u sustur -->
   <link rel="icon" href="data:," />
   <style>
-    :root{color-scheme:dark light}
-    body{margin:0;background:#111;color:#eee;font-family:system-ui,Segoe UI,Arial}
-    header{padding:12px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    button,input{padding:8px 12px;border-radius:10px;border:0;font-size:14px}
-    button{background:#2b8cff;color:#fff;cursor:pointer}
-    button.secondary{background:#333;color:#ddd}
-    button:disabled{opacity:.5;cursor:not-allowed}
-    #ipd{font-weight:700;margin-left:8px}
-    #wrap{display:grid;place-items:center;padding:12px}
-    canvas{max-width:min(96vw,960px);width:100%;height:auto;background:#000;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
-    .warn{color:#f99}
-    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    label{opacity:.9}
-    .kv{padding:6px 10px;background:#222;border-radius:8px}
-    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+    :root {
+      color-scheme: dark light
+    }
+
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      font-family: system-ui, Segoe UI, Arial
+    }
+
+    header {
+      padding: 12px 16px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap
+    }
+
+    button,
+    input {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 0;
+      font-size: 14px
+    }
+
+    button {
+      background: #2b8cff;
+      color: #fff;
+      cursor: pointer
+    }
+
+    button.secondary {
+      background: #333;
+      color: #ddd
+    }
+
+    button:disabled {
+      opacity: .5;
+      cursor: not-allowed
+    }
+
+    #ipd {
+      font-weight: 700;
+      margin-left: 8px
+    }
+
+    #wrap {
+      display: grid;
+      place-items: center;
+      padding: 12px
+    }
+
+    canvas {
+      max-width: min(96vw, 960px);
+      width: 100%;
+      height: auto;
+      background: #000;
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .35)
+    }
+
+    .warn {
+      color: #f99
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap
+    }
+
+    label {
+      opacity: .9
+    }
+
+    .kv {
+      padding: 6px 10px;
+      background: #222;
+      border-radius: 8px
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace
+    }
   </style>
 
   <!-- ÖNCE yüklenmeli (async/defer YOK) -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 </head>
+
 <body>
   <header>
     <div class="row">
@@ -54,285 +128,304 @@
   <video id="video" playsinline muted style="position:fixed;opacity:0;pointer-events:none;width:0;height:0"></video>
 
   <script>
-  document.addEventListener('DOMContentLoaded', () => {
-    // ---------- HTTPS uyarısı ----------
-    const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
-    if (!isHttps) document.getElementById('httpsWarn').hidden = false;
+    document.addEventListener('DOMContentLoaded', () => {
+      // ---------- HTTPS uyarısı ----------
+      const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
+      if (!isHttps) document.getElementById('httpsWarn').hidden = false;
 
-    // ---------- DOM ----------
-    const video   = document.getElementById('video');
-    const canvas  = document.getElementById('view');
-    const ctx     = canvas.getContext('2d');
-    const ipdEl   = document.getElementById('ipd');
-    const startBtn= document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const errEl   = document.getElementById('err');
+      // ---------- DOM ----------
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('view');
+      const ctx = canvas.getContext('2d');
+      const ipdEl = document.getElementById('ipd');
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const errEl = document.getElementById('err');
 
-    const calibInput = document.getElementById('calibInput');
-    const calibBtn   = document.getElementById('calibBtn');
-    const clearCalibBtn = document.getElementById('clearCalibBtn');
-    const kvalEl = document.getElementById('kval');
-    const bvalEl = document.getElementById('bval');
-    const profKeyEl = document.getElementById('profKey');
+      const calibInput = document.getElementById('calibInput');
+      const calibBtn = document.getElementById('calibBtn');
+      const clearCalibBtn = document.getElementById('clearCalibBtn');
+      const kvalEl = document.getElementById('kval');
+      const bvalEl = document.getElementById('bval');
+      const profKeyEl = document.getElementById('profKey');
 
-    // ---------- Durum ----------
-    let stream = null;
-    let fm = null;
-    let running = false;
-    let raf = null;
+      // ---------- Durum ----------
+      let stream = null;
+      let fm = null;
+      let running = false;
+      let raf = null;
+      let aproxResults;
 
-    // ---------- Cihaz profilleri (affine: k,b) ----------
-    // IPD_corr = k * IPD_est + b
-    let cal = { k: 1.0, b: 0.0, key: "default" };
+      // ---------- Cihaz profilleri (affine: k,b) ----------
+      // IPD_corr = k * IPD_est + b
+      let cal = { k: 1.0, b: 0.0, key: "default" };
 
-    function loadProfiles() {
-      try { return JSON.parse(localStorage.getItem('ipd_profiles') || '{}'); }
-      catch { return {}; }
-    }
-    function saveProfiles(p) {
-      localStorage.setItem('ipd_profiles', JSON.stringify(p));
-    }
-    function selectProfile(key) {
-      const p = loadProfiles();
-      if (p[key]) cal = { ...p[key], key };
-      else cal = { k: 1.0, b: 0.0, key };
-      refreshCalibUI();
-    }
-    function updateProfile(next) {
-      const p = loadProfiles();
-      p[cal.key] = { k: next.k, b: next.b };
-      saveProfiles(p);
-      cal = { ...next, key: cal.key };
-      refreshCalibUI();
-    }
-    function refreshCalibUI(){
-      kvalEl.textContent = (cal.k).toFixed(4);
-      bvalEl.textContent = (cal.b).toFixed(2);
-      profKeyEl.textContent = cal.key.slice(0,10) + (cal.key.length>10?'…':'');
-    }
-
-    // ---------- Yardımcılar ----------
-    function getFaceMeshCtor(){
-      const ctor = window.FaceMesh?.FaceMesh || window.FaceMesh;
-      if (typeof ctor !== 'function') {
-        throw new Error('FaceMesh constructor yüklenemedi (CDN engelli olabilir).');
+      function loadProfiles() {
+        try { return JSON.parse(localStorage.getItem('ipd_profiles') || '{}'); }
+        catch { return {}; }
       }
-      return ctor;
-    }
-    const mean2D = (pts) => {
-      let sx=0, sy=0; for (const p of pts){ sx+=p.x; sy+=p.y; }
-      return { x:sx/pts.length, y:sy/pts.length };
-    };
-    const toPx = (p, W, H) => ({ x: p.x * W, y: p.y * H });
-    const irisDiameterPx = (arrPx) => {
-      const d = (i,j)=>Math.hypot(arrPx[i].x-arrPx[j].x, arrPx[i].y-arrPx[j].y);
-      return (d(0,2) + d(1,3) + d(2,4)) / 3;
-    };
-    const drawDot = (x,y,r=4) => {
-      ctx.beginPath();
-      ctx.arc(x,y,r,0,Math.PI*2);
-      ctx.fillStyle = '#ff2d2d';
-      ctx.shadowColor = '#ff2d2d';
-      ctx.shadowBlur = 6;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    };
+      function saveProfiles(p) {
+        localStorage.setItem('ipd_profiles', JSON.stringify(p));
+      }
+      function selectProfile(key) {
+        const p = loadProfiles();
+        if (p[key]) cal = { ...p[key], key };
+        else cal = { k: 1.0, b: 0.0, key };
+        refreshCalibUI();
+      }
+      function updateProfile(next) {
+        const p = loadProfiles();
+        p[cal.key] = { k: next.k, b: next.b };
+        saveProfiles(p);
+        cal = { ...next, key: cal.key };
+        refreshCalibUI();
+      }
+      function refreshCalibUI() {
+        kvalEl.textContent = (cal.k).toFixed(4);
+        bvalEl.textContent = (cal.b).toFixed(2);
+        profKeyEl.textContent = cal.key.slice(0, 10) + (cal.key.length > 10 ? '…' : '');
+      }
+      function avgLastN(arr, n) {
+        const m = Math.min(arr.length, n);
+        if (m === 0) return NaN;
+        let sum = 0;
+        for (let i = arr.length - m; i < arr.length; i++) sum += arr[i];
+        return sum / m;
+      }
 
-    // ---------- Kalite Kontrolleri ----------
-    const MAX_VERT_DIFF  = 0.02;  // |lp.y - rp.y| / H
-    const IRIS_RATIO_TOL = 0.25;  // |lDia - rDia| / avgDia
-    const MIN_IRIS_PX    = 14;    // çok küçük iris => uzak/blur
 
-    // ---------- Temporal filtre (Medyan + EMA) ----------
-    const windowVals = [];
-    const WINDOW_N = 21;
-    let ema = null;
-    const EMA_ALPHA = 0.25;
-    function pushAndFilter(val){
-      windowVals.push(val);
-      if (windowVals.length > WINDOW_N) windowVals.shift();
-      const sorted = [...windowVals].sort((a,b)=>a-b);
-      const med = sorted[Math.floor(sorted.length/2)];
-      ema = (ema == null) ? med : (EMA_ALPHA*med + (1-EMA_ALPHA)*ema);
-      return {med, ema};
-    }
-
-    // ---------- Kamera ----------
-    async function openCamera() {
-      const constraints = {
-        audio: false,
-        video: {
-          width:  { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: 'user',
-          frameRate: { ideal: 30, max: 60 }
+      // ---------- Yardımcılar ----------
+      function getFaceMeshCtor() {
+        const ctor = window.FaceMesh?.FaceMesh || window.FaceMesh;
+        if (typeof ctor !== 'function') {
+          throw new Error('FaceMesh constructor yüklenemedi (CDN engelli olabilir).');
         }
+        return ctor;
+      }
+      const mean2D = (pts) => {
+        let sx = 0, sy = 0; for (const p of pts) { sx += p.x; sy += p.y; }
+        return { x: sx / pts.length, y: sy / pts.length };
       };
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const toPx = (p, W, H) => ({ x: p.x * W, y: p.y * H });
+      const irisDiameterPx = (arrPx) => {
+        const d = (i, j) => Math.hypot(arrPx[i].x - arrPx[j].x, arrPx[i].y - arrPx[j].y);
+        return (d(0, 2) + d(1, 3) + d(2, 4)) / 3;
+      };
+      const drawDot = (x, y, r = 4) => {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff2d2d';
+        ctx.shadowColor = '#ff2d2d';
+        ctx.shadowBlur = 6;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      };
 
-      // Cihaz anahtarı → profil
-      try {
-        const track = stream.getVideoTracks()[0];
-        const s = track.getSettings();
-        const devKey = s.deviceId || s.groupId || navigator.userAgent || 'default';
-        selectProfile(devKey);
-      } catch { selectProfile('default'); }
+      // ---------- Kalite Kontrolleri ----------
+      const MAX_VERT_DIFF = 0.02;  // |lp.y - rp.y| / H
+      const IRIS_RATIO_TOL = 0.25;  // |lDia - rDia| / avgDia
+      const MIN_IRIS_PX = 14;    // çok küçük iris => uzak/blur
 
-      video.srcObject = stream;
-      await video.play();
-    }
-
-    // ---------- Başlat / Durdur ----------
-    async function start() {
-      if (running) return;
-      errEl.textContent = '';
-      windowVals.length = 0; ema = null;
-
-      if (!navigator.mediaDevices?.getUserMedia) {
-        errEl.textContent = 'Tarayıcı getUserMedia desteklemiyor.';
-        return;
+      // ---------- Temporal filtre (Medyan + EMA) ----------
+      const windowVals = [];
+      const WINDOW_N = 21;
+      let ema = null;
+      const EMA_ALPHA = 0.25;
+      function pushAndFilter(val) {
+        windowVals.push(val);
+        if (windowVals.length > WINDOW_N) windowVals.shift();
+        const sorted = [...windowVals].sort((a, b) => a - b);
+        const med = sorted[Math.floor(sorted.length / 2)];
+        ema = (ema == null) ? med : (EMA_ALPHA * med + (1 - EMA_ALPHA) * ema);
+        return { med, ema };
       }
 
-      try { await openCamera(); }
-      catch(e){ errEl.textContent = 'Kamera açılamadı: '+(e.message||e.name||e); return; }
+      // ---------- Kamera ----------
+      async function openCamera() {
+        const constraints = {
+          audio: false,
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: 'user',
+            frameRate: { ideal: 30, max: 60 }
+          }
+        };
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
 
-      // FaceMesh hazırlık
-      try {
-        const FaceMeshCtor = getFaceMeshCtor();
-        fm = new FaceMeshCtor({
-          locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
+        // Cihaz anahtarı → profil
+        try {
+          const track = stream.getVideoTracks()[0];
+          const s = track.getSettings();
+          const devKey = s.deviceId || s.groupId || navigator.userAgent || 'default';
+          selectProfile(devKey);
+        } catch { selectProfile('default'); }
+
+        video.srcObject = stream;
+        await video.play();
+      }
+
+      // ---------- Başlat / Durdur ----------
+      async function start() {
+        if (running) return;
+        errEl.textContent = '';
+        windowVals.length = 0; ema = null;
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+          errEl.textContent = 'Tarayıcı getUserMedia desteklemiyor.';
+          return;
+        }
+
+        try { await openCamera(); }
+        catch (e) { errEl.textContent = 'Kamera açılamadı: ' + (e.message || e.name || e); return; }
+
+        // FaceMesh hazırlık
+        try {
+          const FaceMeshCtor = getFaceMeshCtor();
+          fm = new FaceMeshCtor({
+            locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
+          });
+        } catch (e) { errEl.textContent = e.message || e; return; }
+
+        fm.setOptions({
+          maxNumFaces: 1,
+          refineLandmarks: true,         // iris landmarks
+          minDetectionConfidence: 0.6,
+          minTrackingConfidence: 0.6
         });
-      } catch(e){ errEl.textContent = e.message || e; return; }
 
-      fm.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,         // iris landmarks
-        minDetectionConfidence: 0.6,
-        minTrackingConfidence: 0.6
+        fm.onResults(onResults);
+
+        running = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+
+        const loop = async () => {
+          if (!running) return;
+          try { await fm.send({ image: video }); } catch (e) { }
+          raf = requestAnimationFrame(loop);
+        };
+        loop();
+      }
+
+      function stop() {
+        running = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+
+        if (raf) cancelAnimationFrame(raf), raf = null;
+        if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+        ipdEl.textContent = 'IPD: -- mm';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // ---------- Sonuç işleyici ----------
+      function onResults(res) {
+        const W = canvas.width = video.videoWidth || 1280;
+        const H = canvas.height = video.videoHeight || 720;
+
+        ctx.save();
+        ctx.clearRect(0, 0, W, H);
+        ctx.drawImage(video, 0, 0, W, H);
+
+        if (!res.multiFaceLandmarks || !res.multiFaceLandmarks.length) {
+          ctx.restore(); return;
+        }
+
+        const lm = res.multiFaceLandmarks[0];
+
+        // İris noktaları (refineLandmarks:true)
+        const L = [lm[468], lm[469], lm[470], lm[471], lm[472]];
+        const R = [lm[473], lm[474], lm[475], lm[476], lm[477]];
+
+        const lC = mean2D(L), rC = mean2D(R);
+        const lPx = toPx(lC, W, H), rPx = toPx(rC, W, H);
+
+        // Sol/Sağ iris çapı (piksel)
+        const LPx = L.map(p => toPx(p, W, H));
+        const RPx = R.map(p => toPx(p, W, H));
+        const lDia = irisDiameterPx(LPx);
+        const rDia = irisDiameterPx(RPx);
+        const irisDiaPx = (lDia + rDia) * 0.5;
+
+        // Kalite kontrolleri
+        const vertDiff = Math.abs(lPx.y - rPx.y) / H;
+        const irisRatio = Math.abs(lDia - rDia) / Math.max(irisDiaPx, 1e-6);
+        const valid = !(irisDiaPx < MIN_IRIS_PX || vertDiff > MAX_VERT_DIFF || irisRatio > IRIS_RATIO_TOL);
+
+        // Ölçek: mm/px (ortalama iris ~11.7mm) — kişi bağımlı hatayı affine kalibrasyon telafi eder
+        const mmPerPx = 11.7 / Math.max(irisDiaPx, 1e-6);
+
+        // Yalnızca yatay mesafe (pozdan gelen kısalmayı azaltır)
+        const ipdPxX = Math.abs(lPx.x - rPx.x);
+
+        // İlk tahmin ve affine düzeltme
+        const ipdMmEst = ipdPxX * mmPerPx;
+        const ipdMmAdj = cal.k * ipdMmEst + cal.b;
+
+        // Nokta çiz
+        drawDot(lPx.x, lPx.y, 4);
+        drawDot(rPx.x, rPx.y, 4);
+
+        // Gösterim
+        let label;
+        let aproxResults = [];
+
+        if (valid) {
+          // Değeri pencereye ekle (medyan/EMA için)
+          const { ema: filtered } = pushAndFilter(ipdMmAdj);
+
+          // Son 10 değerin ortalaması
+          const avg10 = avgLastN(windowVals, 10);
+
+          // Ortalama yoksa (ilk kareler) EMA ya da ham değeri kullan
+          const shown = Number.isFinite(avg10) ? avg10 : (filtered ?? ipdMmAdj);
+
+          label = `IPD (10Ø): ${shown.toFixed(1)} mm`;
+          ipdEl.textContent = label;
+        } else {
+          label = `IPD: (kalitesiz kare)`;
+        }
+
+        ctx.font = '16px ui-sans-serif, system-ui, Arial';
+        const w = ctx.measureText(label).width + 12;
+        ctx.fillStyle = 'rgba(0,0,0,.6)';
+        ctx.fillRect(8, 8, w, 26);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, 14, 28);
+
+        ctx.restore();
+      }
+
+      // ---------- Kalibrasyon UI ----------
+      calibBtn.addEventListener('click', () => {
+        const target = parseFloat(calibInput.value);
+        if (!isFinite(target) || target < 45 || target > 80) {
+          alert('Geçerli bir PD gir (45–80 mm).'); return;
+        }
+        // En güncel istikrarlı örnek
+        const sample = (ema ?? (windowVals.length ? windowVals[Math.floor(windowVals.length / 2)] : NaN));
+        if (!isFinite(sample) || sample <= 0) {
+          alert('Önce birkaç saniye ölçüm alınsın, sonra kalibre et.'); return;
+        }
+
+        // Pratik: ölçeği sabit tutup bias ayarla (telefon-PC sabit farkını düzeltir)
+        const newK = cal.k;
+        const newB = target - newK * sample;
+
+        updateProfile({ k: newK, b: newB });
+        alert(`Kalibrasyon uygulandı → k=${newK.toFixed(4)}, b=${newB.toFixed(2)} mm`);
       });
 
-      fm.onResults(onResults);
+      clearCalibBtn.addEventListener('click', () => {
+        updateProfile({ k: 1.0, b: 0.0 });
+        alert('Kalibrasyon sıfırlandı (k=1.0, b=0.0).');
+      });
 
-      running = true;
-      startBtn.disabled = true;
-      stopBtn.disabled  = false;
-
-      const loop = async () => {
-        if (!running) return;
-        try { await fm.send({ image: video }); } catch(e){}
-        raf = requestAnimationFrame(loop);
-      };
-      loop();
-    }
-
-    function stop() {
-      running = false;
-      startBtn.disabled = false;
-      stopBtn.disabled = true;
-
-      if (raf) cancelAnimationFrame(raf), raf=null;
-      if (stream) { stream.getTracks().forEach(t => t.stop()); stream=null; }
-      ipdEl.textContent = 'IPD: -- mm';
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-    }
-
-    // ---------- Sonuç işleyici ----------
-    function onResults(res) {
-      const W = canvas.width  = video.videoWidth  || 1280;
-      const H = canvas.height = video.videoHeight || 720;
-
-      ctx.save();
-      ctx.clearRect(0,0,W,H);
-      ctx.drawImage(video, 0, 0, W, H);
-
-      if (!res.multiFaceLandmarks || !res.multiFaceLandmarks.length) {
-        ctx.restore(); return;
-      }
-
-      const lm = res.multiFaceLandmarks[0];
-
-      // İris noktaları (refineLandmarks:true)
-      const L = [lm[468], lm[469], lm[470], lm[471], lm[472]];
-      const R = [lm[473], lm[474], lm[475], lm[476], lm[477]];
-
-      const lC = mean2D(L), rC = mean2D(R);
-      const lPx = toPx(lC, W, H), rPx = toPx(rC, W, H);
-
-      // Sol/Sağ iris çapı (piksel)
-      const LPx = L.map(p => toPx(p, W, H));
-      const RPx = R.map(p => toPx(p, W, H));
-      const lDia = irisDiameterPx(LPx);
-      const rDia = irisDiameterPx(RPx);
-      const irisDiaPx = (lDia + rDia) * 0.5;
-
-      // Kalite kontrolleri
-      const vertDiff = Math.abs(lPx.y - rPx.y) / H;
-      const irisRatio = Math.abs(lDia - rDia) / Math.max(irisDiaPx, 1e-6);
-      const valid = !(irisDiaPx < MIN_IRIS_PX || vertDiff > MAX_VERT_DIFF || irisRatio > IRIS_RATIO_TOL);
-
-      // Ölçek: mm/px (ortalama iris ~11.7mm) — kişi bağımlı hatayı affine kalibrasyon telafi eder
-      const mmPerPx = 11.7 / Math.max(irisDiaPx, 1e-6);
-
-      // Yalnızca yatay mesafe (pozdan gelen kısalmayı azaltır)
-      const ipdPxX = Math.abs(lPx.x - rPx.x);
-
-      // İlk tahmin ve affine düzeltme
-      const ipdMmEst = ipdPxX * mmPerPx;
-      const ipdMmAdj = cal.k * ipdMmEst + cal.b;
-
-      // Nokta çiz
-      drawDot(lPx.x, lPx.y, 4);
-      drawDot(rPx.x, rPx.y, 4);
-
-      // Gösterim
-      let label;
-      if (valid){
-        const { ema:filtered } = pushAndFilter(ipdMmAdj);
-        const shown = (filtered ?? ipdMmAdj);
-        label = `IPD: ${shown.toFixed(1)} mm`;
-        ipdEl.textContent = label;
-      } else {
-        label = `IPD: (kalitesiz kare)`;
-      }
-
-      ctx.font = '16px ui-sans-serif, system-ui, Arial';
-      const w = ctx.measureText(label).width + 12;
-      ctx.fillStyle = 'rgba(0,0,0,.6)';
-      ctx.fillRect(8, 8, w, 26);
-      ctx.fillStyle = '#fff';
-      ctx.fillText(label, 14, 28);
-
-      ctx.restore();
-    }
-
-    // ---------- Kalibrasyon UI ----------
-    calibBtn.addEventListener('click', () => {
-      const target = parseFloat(calibInput.value);
-      if (!isFinite(target) || target < 45 || target > 80) {
-        alert('Geçerli bir PD gir (45–80 mm).'); return;
-      }
-      // En güncel istikrarlı örnek
-      const sample = (ema ?? (windowVals.length ? windowVals[Math.floor(windowVals.length/2)] : NaN));
-      if (!isFinite(sample) || sample <= 0) {
-        alert('Önce birkaç saniye ölçüm alınsın, sonra kalibre et.'); return;
-      }
-
-      // Pratik: ölçeği sabit tutup bias ayarla (telefon-PC sabit farkını düzeltir)
-      const newK = cal.k;
-      const newB = target - newK * sample;
-
-      updateProfile({ k: newK, b: newB });
-      alert(`Kalibrasyon uygulandı → k=${newK.toFixed(4)}, b=${newB.toFixed(2)} mm`);
+      startBtn.addEventListener('click', start);
+      stopBtn.addEventListener('click', stop);
     });
-
-    clearCalibBtn.addEventListener('click', () => {
-      updateProfile({ k: 1.0, b: 0.0 });
-      alert('Kalibrasyon sıfırlandı (k=1.0, b=0.0).');
-    });
-
-    startBtn.addEventListener('click', start);
-    stopBtn.addEventListener('click', stop);
-  });
   </script>
 </body>
+
 </html>
