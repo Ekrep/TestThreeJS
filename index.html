@@ -1,507 +1,204 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pupil Mesafe Ölçer (PD Calculator)</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 20px;
-            color: white;
-        }
-        
-        h1 {
-            margin-bottom: 20px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        }
-        
-        .container {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 30px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 800px;
-            width: 100%;
-        }
-        
-        .video-container {
-            position: relative;
-            width: 100%;
-            max-width: 640px;
-            margin: 0 auto;
-            border-radius: 15px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-        
-        #video {
-            width: 100%;
-            height: auto;
-            display: block;
-            transform: scaleX(-1);
-        }
-        
-        #canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            transform: scaleX(-1);
-        }
-        
-        .controls {
-            margin-top: 30px;
-            display: flex;
-            gap: 15px;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
-        
-        button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px 30px;
-            border-radius: 30px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        }
-        
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-        }
-        
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .info-panel {
-            margin-top: 30px;
-            padding: 20px;
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            border-radius: 15px;
-            color: white;
-        }
-        
-        .measurement {
-            font-size: 24px;
-            font-weight: bold;
-            text-align: center;
-            margin: 15px 0;
-            padding: 15px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 10px;
-            backdrop-filter: blur(10px);
-        }
-        
-        .instructions {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            backdrop-filter: blur(5px);
-        }
-        
-        .instructions li {
-            margin: 8px 0;
-            margin-left: 20px;
-        }
-        
-        .status {
-            text-align: center;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 10px;
-            font-weight: bold;
-        }
-        
-        .status.success {
-            background: #4ade80;
-            color: #166534;
-        }
-        
-        .status.error {
-            background: #f87171;
-            color: #991b1b;
-        }
-        
-        .status.warning {
-            background: #fbbf24;
-            color: #92400e;
-        }
-        
-        .loading {
-            text-align: center;
-            color: #667eea;
-            font-size: 18px;
-            margin: 20px 0;
-        }
-        
-        .calibration-info {
-            background: rgba(102, 126, 234, 0.1);
-            border-left: 4px solid #667eea;
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 5px;
-            color: #4c1d95;
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-        
-        .pulse {
-            animation: pulse 2s infinite;
-        }
-    </style>
+  <meta charset="utf-8" />
+  <title>FaceMesh IPD (Sadece JS)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body{margin:0;background:#111;color:#eee;font-family:system-ui,Segoe UI,Arial}
+    header{padding:12px 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button{padding:8px 12px;border-radius:8px;border:0;background:#2b8cff;color:#fff;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    #ipd{font-weight:600;margin-left:8px}
+    #wrap{display:grid;place-items:center;padding:8px}
+    canvas{max-width:min(96vw,720px);width:100%;height:auto;background:#000;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+    .warn{color:#f99}
+  </style>
 </head>
 <body>
-    <h1>👁️ Pupil Mesafe Ölçer (PD Calculator) 👁️</h1>
-    
-    <div class="container">
-        <div class="instructions">
-            <h3 style="color: #667eea; margin-bottom: 10px;">📋 Kullanım Talimatları:</h3>
-            <ol style="color: #4c1d95;">
-                <li>Kamerayı başlat butonuna tıklayın</li>
-                <li>Yüzünüzü kameraya doğru tutun (yaklaşık 30-40cm mesafede)</li>
-                <li>Başınızı düz tutun ve doğrudan kameraya bakın</li>
-                <li>Otomatik ölçüm başlayacak</li>
-                <li>Kırmızı noktalar gözbebeklerinizi gösterecek</li>
-                <li>PD (Pupillary Distance) değeriniz ekranda görünecek</li>
-            </ol>
-        </div>
-        
-        <div class="video-container">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="canvas"></canvas>
-        </div>
-        
-        <div class="controls">
-            <button id="startBtn" onclick="startCamera()">📷 Kamerayı Başlat</button>
-            <button id="stopBtn" onclick="stopCamera()" disabled>⏹️ Durdur</button>
-            <button id="calibrateBtn" onclick="calibrate()" style="display:none;">📐 Kalibrasyon</button>
-        </div>
-        
-        <div id="status" class="status" style="display: none;"></div>
-        
-        <div id="loading" class="loading" style="display: none;">
-            ⏳ Model yükleniyor, lütfen bekleyin...
-        </div>
-        
-        <div class="measurement" id="measurement" style="display: none;">
-            PD Mesafeniz: <span id="pdValue">--</span> mm
-        </div>
-        
-        <div class="calibration-info">
-            <strong>⚠️ Önemli Not:</strong> Bu ölçüm tahmini bir değerdir. Kesin sonuçlar için bir optisyene başvurun. 
-            Normal PD değerleri yetişkinlerde 54-74mm arasındadır.
-        </div>
-        
-        <div class="info-panel">
-            <h3 style="margin-bottom: 10px;">ℹ️ PD (Pupillary Distance) Nedir?</h3>
-            <p style="line-height: 1.6;">
-                Pupillary Distance (PD), iki göz bebeğinizin merkezi arasındaki milimetre cinsinden mesafedir. 
-                Gözlük camlarının doğru konumlandırılması için kritik öneme sahiptir. 
-                Bu uygulama, yüz tanıma teknolojisi kullanarak PD'nizi tahmin eder.
-            </p>
-        </div>
-    </div>
-    
-    <!-- Face-api.js kütüphanesi -->
-    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
-    
-    <script>
-        let video = document.getElementById('video');
-        let canvas = document.getElementById('canvas');
-        let ctx = canvas.getContext('2d');
-        let stream = null;
-        let isModelLoaded = false;
-        let detectionInterval = null;
-        let calibrationFactor = 0.18;
-        
-        // Model yükleme
-        async function loadModels() {
-            try {
-                showStatus('Modeller yükleniyor...', 'warning');
-                document.getElementById('loading').style.display = 'block';
-                
-                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights/';
-                
-                await Promise.all([
-                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-                ]);
-                
-                isModelLoaded = true;
-                document.getElementById('loading').style.display = 'none';
-                showStatus('Modeller başarıyla yüklendi! Kamerayı başlatabilirsiniz.', 'success');
-                
-                setTimeout(() => {
-                    document.getElementById('status').style.display = 'none';
-                }, 3000);
-                
-            } catch (error) {
-                console.error('Model yükleme hatası:', error);
-                // Basit alternatif çözüm
-                useSimpleDetection();
-            }
-        }
-        
-        // Basit göz tespiti (model yüklenemezse)
-        function useSimpleDetection() {
-            isModelLoaded = 'simple';
-            document.getElementById('loading').style.display = 'none';
-            showStatus('Basit tespit modu aktif. Kamerayı başlatın ve gözlerinizi tıklayın.', 'warning');
-            document.getElementById('calibrateBtn').style.display = 'inline-block';
-        }
-        
-        // Sayfa yüklendiğinde modelleri yükle
-        window.addEventListener('load', () => {
-            loadModels();
-        });
-        
-        async function startCamera() {
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: 'user'
-                    } 
-                });
-                
-                video.srcObject = stream;
-                
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    
-                    document.getElementById('startBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = false;
-                    
-                    if (isModelLoaded === true) {
-                        startDetection();
-                        showStatus('Yüz tespiti başladı!', 'success');
-                    } else if (isModelLoaded === 'simple') {
-                        setupManualDetection();
-                        showStatus('Gözlerinizin üzerine tıklayarak işaretleyin.', 'warning');
-                    }
-                };
-                
-            } catch (error) {
-                console.error('Kamera erişim hatası:', error);
-                showStatus('Kamera erişimi reddedildi veya bulunamadı.', 'error');
-            }
-        }
-        
-        // Face-api.js ile otomatik tespit
-        async function startDetection() {
-            if (!isModelLoaded || isModelLoaded !== true) return;
-            
-            detectionInterval = setInterval(async () => {
-                try {
-                    const detections = await faceapi.detectAllFaces(
-                        video, 
-                        new faceapi.TinyFaceDetectorOptions()
-                    ).withFaceLandmarks();
-                    
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    
-                    if (detections.length > 0) {
-                        const landmarks = detections[0].landmarks;
-                        
-                        // Göz noktalarını al
-                        const leftEye = landmarks.getLeftEye();
-                        const rightEye = landmarks.getRightEye();
-                        
-                        // Göz merkezlerini hesapla
-                        const leftEyeCenter = getCenter(leftEye);
-                        const rightEyeCenter = getCenter(rightEye);
-                        
-                        // Pupil noktalarını tahmin et (göz merkezinin biraz içerisi)
-                        const leftPupil = {
-                            x: leftEyeCenter.x,
-                            y: leftEyeCenter.y
-                        };
-                        
-                        const rightPupil = {
-                            x: rightEyeCenter.x,
-                            y: rightEyeCenter.y
-                        };
-                        
-                        drawPDMeasurement(leftPupil, rightPupil);
-                    }
-                } catch (error) {
-                    console.error('Tespit hatası:', error);
-                }
-            }, 100);
-        }
-        
-        // Manuel göz işaretleme
-        let manualPoints = [];
-        function setupManualDetection() {
-            canvas.style.pointerEvents = 'auto';
-            canvas.style.cursor = 'crosshair';
-            
-            canvas.onclick = (e) => {
-                const rect = canvas.getBoundingClientRect();
-                const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-                const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-                
-                if (manualPoints.length < 2) {
-                    manualPoints.push({x, y});
-                    
-                    // Nokta çiz
-                    ctx.fillStyle = 'yellow';
-                    ctx.beginPath();
-                    ctx.arc(x, y, 5, 0, 2 * Math.PI);
-                    ctx.fill();
-                    
-                    if (manualPoints.length === 2) {
-                        drawPDMeasurement(manualPoints[0], manualPoints[1]);
-                        setTimeout(() => {
-                            manualPoints = [];
-                        }, 3000);
-                    }
-                } else {
-                    manualPoints = [];
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                }
-            };
-        }
-        
-        // Merkez noktasını hesapla
-        function getCenter(points) {
-            const x = points.reduce((sum, p) => sum + p.x, 0) / points.length;
-            const y = points.reduce((sum, p) => sum + p.y, 0) / points.length;
-            return {x, y};
-        }
-        
-        // PD ölçümünü çiz ve hesapla
-        function drawPDMeasurement(leftPupil, rightPupil) {
-            // Canvas'ı temizle
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Kırmızı noktaları çiz
-            ctx.fillStyle = 'red';
-            ctx.strokeStyle = 'red';
-            ctx.lineWidth = 3;
-            
-            // Sol göz noktası
-            ctx.beginPath();
-            ctx.arc(leftPupil.x, leftPupil.y, 8, 0, 2 * Math.PI);
-            ctx.fill();
-            
-            // Sağ göz noktası
-            ctx.beginPath();
-            ctx.arc(rightPupil.x, rightPupil.y, 8, 0, 2 * Math.PI);
-            ctx.fill();
-            
-            // Çizgi çiz
-            ctx.beginPath();
-            ctx.moveTo(leftPupil.x, leftPupil.y);
-            ctx.lineTo(rightPupil.x, rightPupil.y);
-            ctx.stroke();
-            
-            // Mesafeyi hesapla
-            const pixelDistance = Math.sqrt(
-                Math.pow(rightPupil.x - leftPupil.x, 2) + 
-                Math.pow(rightPupil.y - leftPupil.y, 2)
-            );
-            
-            // MM'ye çevir
-            const pdInMM = Math.round(pixelDistance * calibrationFactor);
-            
-            // Makul aralıkta olduğundan emin ol
-            const finalPD = Math.min(Math.max(pdInMM, 50), 80);
-            
-            // Orta noktayı hesapla
-            const midX = (leftPupil.x + rightPupil.x) / 2;
-            const midY = (leftPupil.y + rightPupil.y) / 2;
-            
-            // Arka plan kutusu
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.fillRect(midX - 45, midY - 40, 90, 35);
-            
-            // Mesafe etiketi
-            ctx.fillStyle = 'red';
-            ctx.font = 'bold 20px Arial';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(`${finalPD} mm`, midX, midY - 22);
-            
-            // Sonucu göster
-            document.getElementById('pdValue').textContent = finalPD;
-            document.getElementById('measurement').style.display = 'block';
-        }
-        
-        // Kalibrasyon
-        function calibrate() {
-            const userPD = prompt('Bilinen PD değerinizi girin (mm):', '63');
-            if (userPD && !isNaN(userPD)) {
-                // Kullanıcının gerçek PD'sine göre kalibre et
-                // Bu basit bir örnek, daha gelişmiş kalibrasyon yapılabilir
-                calibrationFactor = calibrationFactor * (parseInt(userPD) / 63);
-                showStatus('Kalibrasyon güncellendi!', 'success');
-            }
-        }
-        
-        function stopCamera() {
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-                video.srcObject = null;
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                
-                if (detectionInterval) {
-                    clearInterval(detectionInterval);
-                    detectionInterval = null;
-                }
-                
-                canvas.style.pointerEvents = 'none';
-                manualPoints = [];
-                
-                document.getElementById('startBtn').disabled = false;
-                document.getElementById('stopBtn').disabled = true;
-                document.getElementById('measurement').style.display = 'none';
-                
-                showStatus('Kamera durduruldu.', 'warning');
-            }
-        }
-        
-        function showStatus(message, type) {
-            const statusEl = document.getElementById('status');
-            statusEl.textContent = message;
-            statusEl.className = `status ${type}`;
-            statusEl.style.display = 'block';
-            
-            if (type === 'success') {
-                setTimeout(() => {
-                    statusEl.style.display = 'none';
-                }, 3000);
-            }
-        }
-    </script>
+  <header>
+    <button id="startBtn">Başlat</button>
+    <button id="stopBtn" disabled>Durdur</button>
+    <span id="ipd">IPD: -- mm</span>
+    <span id="httpsWarn" class="warn" hidden>⚠ Kamera için HTTPS veya localhost gerekir.</span>
+  </header>
+
+  <div id="wrap">
+    <canvas id="view" width="640" height="480"></canvas>
+  </div>
+
+  <!-- Gizli video kaynağı -->
+  <video id="video" playsinline muted style="position:fixed;opacity:0;pointer-events:none;width:0;height:0"></video>
+
+  <!-- MediaPipe -->
+  <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+
+  <script>
+  (() => {
+    const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
+    if (!isHttps) document.getElementById('httpsWarn').hidden = false;
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('view');
+    const ctx = canvas.getContext('2d');
+    const ipdEl = document.getElementById('ipd');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn  = document.getElementById('stopBtn');
+
+    let cam = null;
+    let fm  = null;
+    let running = false;
+    let animReq = null;
+
+    // Küçük yardımcılar
+    const mean2D = (pts) => {
+      let sx=0, sy=0; for (const p of pts){ sx+=p.x; sy+=p.y; }
+      return { x:sx/pts.length, y:sy/pts.length };
+    };
+    const toPx = (p, W, H) => ({ x: p.x * W, y: p.y * H });
+
+    const irisDiameterPx = (arrPx) => {
+      // 5 nokta üstünden birkaç karşıt çiftin ortalaması
+      const d = (i,j)=>Math.hypot(arrPx[i].x-arrPx[j].x, arrPx[i].y-arrPx[j].y);
+      return (d(0,2) + d(1,3) + d(2,4)) / 3;
+    };
+
+    const drawDot = (x,y,r=4) => {
+      ctx.beginPath();
+      ctx.arc(x,y,r,0,Math.PI*2);
+      ctx.fillStyle = '#ff2d2d';
+      ctx.shadowColor = '#ff2d2d';
+      ctx.shadowBlur = 6;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    };
+
+    async function start() {
+      if (running) return;
+      running = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      // FaceMesh hazırla
+      fm = new FaceMesh.FaceMesh({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+      });
+      fm.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,   // İris noktaları için şart
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      fm.onResults(onResults);
+
+      // Kamera başlat
+      cam = new Camera.Camera(video, {
+        onFrame: async () => { await fm.send({ image: video }); },
+        width: 640,
+        height: 480
+      });
+
+      try {
+        await cam.start();
+      } catch(e) {
+        console.error('Kamera başlatılamadı:', e);
+        ipdEl.textContent = 'IPD: kamera izni gerekli';
+        stop();
+        return;
+      }
+
+      // Canvas sürekli çizim (gerekirse ek overlay efekti vs.)
+      const loop = () => { animReq = requestAnimationFrame(loop); };
+      loop();
+    }
+
+    function stop() {
+      running = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+
+      if (cam && cam.stop) cam.stop();
+      if (video.srcObject) {
+        for (const t of video.srcObject.getTracks()) t.stop();
+        video.srcObject = null;
+      }
+      if (animReq) cancelAnimationFrame(animReq);
+      animReq = null;
+      fm = null;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ipdEl.textContent = 'IPD: -- mm';
+    }
+
+    function onResults(res) {
+      const W = canvas.width  = video.videoWidth || 640;
+      const H = canvas.height = video.videoHeight || 480;
+
+      // Video frame'ini canvas'a çiz
+      ctx.save();
+      ctx.clearRect(0,0,W,H);
+      ctx.drawImage(res.image, 0, 0, W, H);
+
+      // Yüz yoksa çık
+      if (!res.multiFaceLandmarks || !res.multiFaceLandmarks.length) {
+        ctx.restore();
+        return;
+      }
+
+      const lm = res.multiFaceLandmarks[0];
+
+      // İris indeksleri (468-472 sol, 473-477 sağ)
+      const L = [lm[468], lm[469], lm[470], lm[471], lm[472]];
+      const R = [lm[473], lm[474], lm[475], lm[476], lm[477]];
+
+      // Merkezler
+      const lC = mean2D(L);
+      const rC = mean2D(R);
+
+      const lPx = toPx(lC, W, H);
+      const rPx = toPx(rC, W, H);
+
+      // İris çapı piksel (ortalama)
+      const LPx = L.map(p => toPx(p, W, H));
+      const RPx = R.map(p => toPx(p, W, H));
+      const lDia = irisDiameterPx(LPx);
+      const rDia = irisDiameterPx(RPx);
+      const irisDiaPx = (lDia + rDia) * 0.5;
+
+      // mm/piksel (ortalama iris çapı ≈ 11.7 mm)
+      const mmPerPx = 11.7 / Math.max(irisDiaPx, 1e-6);
+
+      // IPD piksel → mm
+      const ipdPx = Math.hypot(lPx.x - rPx.x, lPx.y - rPx.y);
+      const ipdMm = ipdPx * mmPerPx;
+
+      // Kırmızı noktalar
+      drawDot(lPx.x, lPx.y, 4);
+      drawDot(rPx.x, rPx.y, 4);
+
+      // IPD overlay
+      const label = `IPD: ${ipdMm.toFixed(1)} mm`;
+      ctx.font = '16px ui-sans-serif, system-ui, Arial';
+      ctx.fillStyle = 'rgba(0,0,0,.6)';
+      ctx.fillRect(8, 8, ctx.measureText(label).width + 12, 26);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, 14, 28);
+
+      ipdEl.textContent = label;
+
+      ctx.restore();
+    }
+
+    startBtn.addEventListener('click', start);
+    stopBtn.addEventListener('click', stop);
+
+    // İsteğe bağlı: otomatik başlat (HTTPS ise)
+    if (isHttps) {
+      // Kullanıcı etkileşimi gerektiren tarayıcılar için butona basmak daha güvenli
+      // start(); // otomatik istersen aç
+    }
+  })();
+  </script>
 </body>
 </html>
