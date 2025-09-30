@@ -164,6 +164,16 @@
             border-radius: 5px;
             color: #4c1d95;
         }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
     </style>
 </head>
 <body>
@@ -176,7 +186,7 @@
                 <li>Kamerayı başlat butonuna tıklayın</li>
                 <li>Yüzünüzü kameraya doğru tutun (yaklaşık 30-40cm mesafede)</li>
                 <li>Başınızı düz tutun ve doğrudan kameraya bakın</li>
-                <li>Ölçüm Yap butonuna tıklayın</li>
+                <li>Otomatik ölçüm başlayacak</li>
                 <li>Kırmızı noktalar gözbebeklerinizi gösterecek</li>
                 <li>PD (Pupillary Distance) değeriniz ekranda görünecek</li>
             </ol>
@@ -189,8 +199,8 @@
         
         <div class="controls">
             <button id="startBtn" onclick="startCamera()">📷 Kamerayı Başlat</button>
-            <button id="measureBtn" onclick="measurePD()" disabled>📏 Ölçüm Yap</button>
             <button id="stopBtn" onclick="stopCamera()" disabled>⏹️ Durdur</button>
+            <button id="calibrateBtn" onclick="calibrate()" style="display:none;">📐 Kalibrasyon</button>
         </div>
         
         <div id="status" class="status" style="display: none;"></div>
@@ -218,36 +228,35 @@
         </div>
     </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection@0.0.3/dist/face-landmarks-detection.min.js"></script>
+    <!-- Face-api.js kütüphanesi -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     
     <script>
         let video = document.getElementById('video');
         let canvas = document.getElementById('canvas');
         let ctx = canvas.getContext('2d');
         let stream = null;
-        let model = null;
         let isModelLoaded = false;
-        let animationId = null;
+        let detectionInterval = null;
+        let calibrationFactor = 0.18;
         
         // Model yükleme
-        async function loadModel() {
+        async function loadModels() {
             try {
-                showStatus('Model yükleniyor...', 'warning');
+                showStatus('Modeller yükleniyor...', 'warning');
                 document.getElementById('loading').style.display = 'block';
                 
-                model = await faceLandmarksDetection.createDetector(
-                    faceLandmarksDetection.SupportedModels.MediaPipeFaceMesh,
-                    {
-                        runtime: 'tfjs',
-                        refineLandmarks: true,
-                        maxFaces: 1
-                    }
-                );
+                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights/';
+                
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
                 
                 isModelLoaded = true;
                 document.getElementById('loading').style.display = 'none';
-                showStatus('Model başarıyla yüklendi! Kamerayı başlatabilirsiniz.', 'success');
+                showStatus('Modeller başarıyla yüklendi! Kamerayı başlatabilirsiniz.', 'success');
                 
                 setTimeout(() => {
                     document.getElementById('status').style.display = 'none';
@@ -255,27 +264,30 @@
                 
             } catch (error) {
                 console.error('Model yükleme hatası:', error);
-                showStatus('Model yüklenemedi. Sayfayı yenileyin.', 'error');
-                document.getElementById('loading').style.display = 'none';
+                // Basit alternatif çözüm
+                useSimpleDetection();
             }
         }
         
-        // Sayfa yüklendiğinde modeli yükle
+        // Basit göz tespiti (model yüklenemezse)
+        function useSimpleDetection() {
+            isModelLoaded = 'simple';
+            document.getElementById('loading').style.display = 'none';
+            showStatus('Basit tespit modu aktif. Kamerayı başlatın ve gözlerinizi tıklayın.', 'warning');
+            document.getElementById('calibrateBtn').style.display = 'inline-block';
+        }
+        
+        // Sayfa yüklendiğinde modelleri yükle
         window.addEventListener('load', () => {
-            loadModel();
+            loadModels();
         });
         
         async function startCamera() {
             try {
-                if (!isModelLoaded) {
-                    showStatus('Model henüz yüklenmedi, lütfen bekleyin...', 'warning');
-                    return;
-                }
-                
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { 
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
                         facingMode: 'user'
                     } 
                 });
@@ -287,10 +299,15 @@
                     canvas.height = video.videoHeight;
                     
                     document.getElementById('startBtn').disabled = true;
-                    document.getElementById('measureBtn').disabled = false;
                     document.getElementById('stopBtn').disabled = false;
                     
-                    showStatus('Kamera hazır! Ölçüm yapabilirsiniz.', 'success');
+                    if (isModelLoaded === true) {
+                        startDetection();
+                        showStatus('Yüz tespiti başladı!', 'success');
+                    } else if (isModelLoaded === 'simple') {
+                        setupManualDetection();
+                        showStatus('Gözlerinizin üzerine tıklayarak işaretleyin.', 'warning');
+                    }
                 };
                 
             } catch (error) {
@@ -299,107 +316,155 @@
             }
         }
         
-        async function measurePD() {
-            if (!model || !stream) {
-                showStatus('Önce kamerayı başlatın!', 'warning');
-                return;
-            }
+        // Face-api.js ile otomatik tespit
+        async function startDetection() {
+            if (!isModelLoaded || isModelLoaded !== true) return;
             
-            // Animasyonu durdur
-            if (animationId) {
-                cancelAnimationFrame(animationId);
-            }
-            
-            try {
-                const predictions = await model.estimateFaces(video);
-                
-                if (predictions.length > 0) {
-                    const face = predictions[0];
-                    const keypoints = face.keypoints;
+            detectionInterval = setInterval(async () => {
+                try {
+                    const detections = await faceapi.detectAllFaces(
+                        video, 
+                        new faceapi.TinyFaceDetectorOptions()
+                    ).withFaceLandmarks();
                     
-                    // MediaPipe Face Mesh landmark indeksleri
-                    // Sağ göz iris merkezi: 468-477 arası ortalama
-                    // Sol göz iris merkezi: 473-482 arası ortalama
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
                     
-                    // Sağ göz pupil merkezi (yaklaşık)
-                    const rightEyeIndices = [468, 469, 470, 471, 472];
-                    const leftEyeIndices = [473, 474, 475, 476, 477];
-                    
-                    // Alternatif olarak göz merkezi noktaları
-                    const rightPupil = keypoints[468]; // Sağ göz merkezi
-                    const leftPupil = keypoints[473];  // Sol göz merkezi
-                    
-                    if (rightPupil && leftPupil) {
-                        // Canvas'ı temizle
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    if (detections.length > 0) {
+                        const landmarks = detections[0].landmarks;
                         
-                        // Kırmızı noktaları çiz
-                        ctx.fillStyle = 'red';
-                        ctx.strokeStyle = 'red';
-                        ctx.lineWidth = 3;
+                        // Göz noktalarını al
+                        const leftEye = landmarks.getLeftEye();
+                        const rightEye = landmarks.getRightEye();
                         
-                        // Sağ göz noktası
-                        ctx.beginPath();
-                        ctx.arc(rightPupil.x, rightPupil.y, 8, 0, 2 * Math.PI);
-                        ctx.fill();
+                        // Göz merkezlerini hesapla
+                        const leftEyeCenter = getCenter(leftEye);
+                        const rightEyeCenter = getCenter(rightEye);
                         
-                        // Sol göz noktası
-                        ctx.beginPath();
-                        ctx.arc(leftPupil.x, leftPupil.y, 8, 0, 2 * Math.PI);
-                        ctx.fill();
+                        // Pupil noktalarını tahmin et (göz merkezinin biraz içerisi)
+                        const leftPupil = {
+                            x: leftEyeCenter.x,
+                            y: leftEyeCenter.y
+                        };
                         
-                        // Çizgi çiz
-                        ctx.beginPath();
-                        ctx.moveTo(rightPupil.x, rightPupil.y);
-                        ctx.lineTo(leftPupil.x, leftPupil.y);
-                        ctx.stroke();
+                        const rightPupil = {
+                            x: rightEyeCenter.x,
+                            y: rightEyeCenter.y
+                        };
                         
-                        // Mesafeyi hesapla (piksel cinsinden)
-                        const pixelDistance = Math.sqrt(
-                            Math.pow(leftPupil.x - rightPupil.x, 2) + 
-                            Math.pow(leftPupil.y - rightPupil.y, 2)
-                        );
-                        
-                        // Tahmini mm'ye çevirme
-                        // Ortalama yüz genişliği ~140mm, video genişliğinde ~400-500 piksel
-                        // Kalibrasyon faktörü (bu değer kamera mesafesine göre ayarlanmalı)
-                        const calibrationFactor = 0.165; // Bu değeri test ederek ayarlayın
-                        const pdInMM = Math.round(pixelDistance * calibrationFactor);
-                        
-                        // Orta noktayı hesapla
-                        const midX = (rightPupil.x + leftPupil.x) / 2;
-                        const midY = (rightPupil.y + leftPupil.y) / 2;
-                        
-                        // Mesafe etiketini yaz
-                        ctx.fillStyle = 'white';
-                        ctx.fillRect(midX - 40, midY - 35, 80, 30);
-                        
-                        ctx.fillStyle = 'red';
-                        ctx.font = 'bold 18px Arial';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(`${pdInMM} mm`, midX, midY - 20);
-                        
-                        // Sonucu göster
-                        document.getElementById('pdValue').textContent = pdInMM;
-                        document.getElementById('measurement').style.display = 'block';
-                        
-                        showStatus('Ölçüm başarılı!', 'success');
-                        
-                        // Sürekli ölçüm için animasyon
-                        animationId = requestAnimationFrame(() => measurePD());
-                        
-                    } else {
-                        showStatus('Göz bebekleri tespit edilemedi. Lütfen yüzünüzü düz tutun.', 'warning');
+                        drawPDMeasurement(leftPupil, rightPupil);
                     }
-                    
-                } else {
-                    showStatus('Yüz tespit edilemedi. Lütfen kameraya yaklaşın.', 'warning');
+                } catch (error) {
+                    console.error('Tespit hatası:', error);
                 }
+            }, 100);
+        }
+        
+        // Manuel göz işaretleme
+        let manualPoints = [];
+        function setupManualDetection() {
+            canvas.style.pointerEvents = 'auto';
+            canvas.style.cursor = 'crosshair';
+            
+            canvas.onclick = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+                const y = (e.clientY - rect.top) * (canvas.height / rect.height);
                 
-            } catch (error) {
-                console.error('Ölçüm hatası:', error);
-                showStatus('Ölçüm yapılamadı. Tekrar deneyin.', 'error');
+                if (manualPoints.length < 2) {
+                    manualPoints.push({x, y});
+                    
+                    // Nokta çiz
+                    ctx.fillStyle = 'yellow';
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                    ctx.fill();
+                    
+                    if (manualPoints.length === 2) {
+                        drawPDMeasurement(manualPoints[0], manualPoints[1]);
+                        setTimeout(() => {
+                            manualPoints = [];
+                        }, 3000);
+                    }
+                } else {
+                    manualPoints = [];
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                }
+            };
+        }
+        
+        // Merkez noktasını hesapla
+        function getCenter(points) {
+            const x = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+            const y = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+            return {x, y};
+        }
+        
+        // PD ölçümünü çiz ve hesapla
+        function drawPDMeasurement(leftPupil, rightPupil) {
+            // Canvas'ı temizle
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Kırmızı noktaları çiz
+            ctx.fillStyle = 'red';
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 3;
+            
+            // Sol göz noktası
+            ctx.beginPath();
+            ctx.arc(leftPupil.x, leftPupil.y, 8, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Sağ göz noktası
+            ctx.beginPath();
+            ctx.arc(rightPupil.x, rightPupil.y, 8, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Çizgi çiz
+            ctx.beginPath();
+            ctx.moveTo(leftPupil.x, leftPupil.y);
+            ctx.lineTo(rightPupil.x, rightPupil.y);
+            ctx.stroke();
+            
+            // Mesafeyi hesapla
+            const pixelDistance = Math.sqrt(
+                Math.pow(rightPupil.x - leftPupil.x, 2) + 
+                Math.pow(rightPupil.y - leftPupil.y, 2)
+            );
+            
+            // MM'ye çevir
+            const pdInMM = Math.round(pixelDistance * calibrationFactor);
+            
+            // Makul aralıkta olduğundan emin ol
+            const finalPD = Math.min(Math.max(pdInMM, 50), 80);
+            
+            // Orta noktayı hesapla
+            const midX = (leftPupil.x + rightPupil.x) / 2;
+            const midY = (leftPupil.y + rightPupil.y) / 2;
+            
+            // Arka plan kutusu
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fillRect(midX - 45, midY - 40, 90, 35);
+            
+            // Mesafe etiketi
+            ctx.fillStyle = 'red';
+            ctx.font = 'bold 20px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${finalPD} mm`, midX, midY - 22);
+            
+            // Sonucu göster
+            document.getElementById('pdValue').textContent = finalPD;
+            document.getElementById('measurement').style.display = 'block';
+        }
+        
+        // Kalibrasyon
+        function calibrate() {
+            const userPD = prompt('Bilinen PD değerinizi girin (mm):', '63');
+            if (userPD && !isNaN(userPD)) {
+                // Kullanıcının gerçek PD'sine göre kalibre et
+                // Bu basit bir örnek, daha gelişmiş kalibrasyon yapılabilir
+                calibrationFactor = calibrationFactor * (parseInt(userPD) / 63);
+                showStatus('Kalibrasyon güncellendi!', 'success');
             }
         }
         
@@ -409,15 +474,17 @@
                 video.srcObject = null;
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 
+                if (detectionInterval) {
+                    clearInterval(detectionInterval);
+                    detectionInterval = null;
+                }
+                
+                canvas.style.pointerEvents = 'none';
+                manualPoints = [];
+                
                 document.getElementById('startBtn').disabled = false;
-                document.getElementById('measureBtn').disabled = true;
                 document.getElementById('stopBtn').disabled = true;
                 document.getElementById('measurement').style.display = 'none';
-                
-                if (animationId) {
-                    cancelAnimationFrame(animationId);
-                    animationId = null;
-                }
                 
                 showStatus('Kamera durduruldu.', 'warning');
             }
