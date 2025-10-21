@@ -3,20 +3,20 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>IPD Ölçer (Web)</title>
+  <title>IPD Ölçer (Tek Dosya)</title>
   <style>
-    body { margin:0; font:14px system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#0b0b0c; color:#eee; }
-    #wrap { max-width: 960px; margin: 16px auto; padding: 12px; }
-    #row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
-    video, canvas { max-width:100%; border:1px solid #333; border-radius:8px; }
-    #panel { flex:1 1 240px; min-width:260px; background:#121317; border:1px solid #2a2c34; border-radius:12px; padding:12px; }
-    h1 { font-size:18px; margin:0 0 8px; }
-    button { cursor:pointer; background:#2b82ff; color:#fff; border:0; border-radius:8px; padding:10px 12px; margin-right:8px; }
-    button.sec { background:#273043; }
-    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; vertical-align:middle; margin-right:6px; }
-    .row { margin:8px 0; }
-    code { background:#1a1d26; padding:2px 6px; border-radius:6px; }
-    ul { margin:6px 0 0 18px; }
+    :root{--bg:#0b0b0c;--card:#121317;--b:#2a2c34;--txt:#e8e9ee;--pri:#2b82ff}
+    html,body{height:100%} body{margin:0;background:var(--bg);color:var(--txt);font:14px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    #wrap{max-width:1000px;margin:16px auto;padding:12px}
+    h1{margin:0 0 10px;font-size:18px}
+    #row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+    video,canvas{max-width:100%;border:1px solid #333;border-radius:10px}
+    #panel{flex:1 1 260px;min-width:260px;background:var(--card);border:1px solid var(--b);border-radius:12px;padding:12px}
+    button{cursor:pointer;background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 12px;margin:0 8px 8px 0}
+    button.sec{background:#273043}
+    .dot{width:10px;height:10px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:6px}
+    .row{margin:8px 0} code{background:#1a1d26;padding:2px 6px;border-radius:6px}
+    ul{margin:6px 0 0 18px}
   </style>
 </head>
 <body>
@@ -48,16 +48,15 @@
   </div>
 </div>
 
-<!-- OpenCV.js (Aruco modülü içeren build) -->
-<script async src="https://docs.opencv.org/4.x/opencv.js" onload="cvOnReady()" ></script>
-<!-- MediaPipe Tasks Vision -->
-<script type="module" src="app.js"></script>
-<script>
-  import { FaceLandmarker, FilesetResolver }
-  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+<!-- OpenCV.js (Aruco modülü destekli build) -->
+<script async src="https://docs.opencv.org/4.x/opencv.js" onload="cvOnReady()"></script>
 
-const W = 1280, H = 720;         // hedef çözünürlük
-const MARKER_MM = 60;            // ArUco kare kenarı (mm) (baskına göre değiştir)
+<!-- Tek-dosya JS (module) -->
+<script type="module">
+import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+
+const W = 1280, H = 720;              // hedef çözünürlük
+const MARKER_MM = 60;                 // bastığın ArUco kare kenarı (mm)
 const CARD_W_MM = 85.60, CARD_H_MM = 53.98;
 
 const vid = document.getElementById('cam');
@@ -73,106 +72,88 @@ let ema = null, alpha = 0.25;
 let medianWin = []; const MED_N = 15;
 
 let cvReady = false;
-window.cvOnReady = () => {
-  // OpenCV.js runtime hazır olduğunda çağrılır
-  cv['onRuntimeInitialized'] = () => { cvReady = true; };
-};
+window.cvOnReady = () => { cv.onRuntimeInitialized = () => { cvReady = true; }; };
 
-function setQuality(color, text) { qdot.style.background = color; qtxt.textContent = text; }
+function setQuality(color, text){ qdot.style.background = color; qtxt.textContent = text; }
 function fmt(n){ return (n!=null && isFinite(n)) ? n.toFixed(1) : '—'; }
-function pushMedian(win, v, N){ win.push(v); if (win.length>N) win.shift();
-  const s = [...win].sort((a,b)=>a-b); const m = (s.length-1)/2;
-  return (s.length%2) ? s[(s.length-1)/2] : 0.5*(s[Math.floor(m)] + s[Math.ceil(m)]);
-}
+function pushMedian(win, v, N){ win.push(v); if (win.length>N) win.shift(); const s=[...win].sort((a,b)=>a-b); const m=(s.length-1)/2; return (s.length%2)? s[(s.length-1)/2] : 0.5*(s[Math.floor(m)]+s[Math.ceil(m)]); }
 function v2img(p){ return [p.x*cvs.width, p.y*cvs.height]; }
 
-async function initCam() {
+async function initCam(){
   const stream = await navigator.mediaDevices.getUserMedia({
     video:{ facingMode:"user", width:{ideal:W}, height:{ideal:H}, frameRate:{ideal:30} }, audio:false
   });
   vid.srcObject = stream;
   await vid.play();
-  cvs.width = vid.videoWidth || W; cvs.height = vid.videoHeight || H;
+  cvs.width = vid.videoWidth || W;
+  cvs.height = vid.videoHeight || H;
 }
 
-async function initMP() {
-  const fs = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+async function initMP(){
+  const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
   landmarker = await FaceLandmarker.createFromOptions(fs, {
-    baseOptions: {
-      modelAssetPath:
-       "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
-    },
+    baseOptions:{ modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" },
     outputFaceBlendshapes:false, runningMode:"VIDEO", numFaces:1
   });
 }
 
-function irisCenters(lm) {
-  // Önce iris merkezleri (468 sol, 473 sağ) varsa onları kullan
+function irisCenters(lm){
   const L = lm[468], R = lm[473];
   if (L && R) return { L, R, hasIris:true };
-  // Yedek: göz merkezini temel kontur noktalarının ortalamasıyla tahmin et
-  const idxL = [33,133,159,145], idxR = [263,362,386,374];
-  const avg = (ids)=> {
-    let sx=0, sy=0, n=0; for(const i of ids){ if(lm[i]){ sx+=lm[i].x; sy+=lm[i].y; n++; } }
-    return {x:sx/n, y:sy/n, z:0};
-  };
-  return { L: avg(idxL), R: avg(idxR), hasIris:false };
+  const idxL=[33,133,159,145], idxR=[263,362,386,374];
+  const avg = ids => { let sx=0, sy=0, n=0; for(const i of ids){ if(lm[i]){ sx+=lm[i].x; sy+=lm[i].y; n++; } } return {x:sx/n,y:sy/n,z:0}; };
+  return { L:avg(idxL), R:avg(idxR), hasIris:false };
 }
 
 function faceAngleQuality(lm){
-  // Basit yüz-açı kestirimi: göz hattının yataya eğimi + gözler-arası/yanak genişliği oranı
   if(!lm[33] || !lm[263] || !lm[1]) return {ok:false, angle:999, qual:0};
   const [lx,ly] = v2img(lm[33]), [rx,ry] = v2img(lm[263]);
-  const eyeSlopeDeg = Math.abs(Math.atan2(ry-ly, rx-lx) * 180/Math.PI); // ~0° idealdir
+  const eyeSlopeDeg = Math.abs(Math.atan2(ry-ly, rx-lx) * 180/Math.PI);
   const eyeDist = Math.hypot(rx-lx, ry-ly);
-  const nose = v2img(lm[1]);
-  const cen = [(lx+rx)/2,(ly+ry)/2];
-  const off = Math.hypot(cen[0]-nose[0], cen[1]-nose[1]); // yüz merkez kayması
-  // Heuristik kalite 0..1
+  const nose = v2img(lm[1]); const cen=[(lx+rx)/2,(ly+ry)/2];
+  const off = Math.hypot(cen[0]-nose[0], cen[1]-nose[1]);
   const qSlope = Math.max(0, 1 - eyeSlopeDeg/20);
   const qCent  = Math.max(0, 1 - off / (eyeDist*0.6));
   const qual = 0.6*qSlope + 0.4*qCent;
-  const ok = (eyeSlopeDeg <= 20);
-  return {ok, angle:eyeSlopeDeg, qual};
+  return {ok:(eyeSlopeDeg<=20), angle:eyeSlopeDeg, qual};
 }
 
-function drawOverlay(lm, L, R){
-  ctx.fillStyle = "#00ffff"; ctx.beginPath();
-  ctx.arc(L.x*cvs.width, L.y*cvs.height, 4, 0, Math.PI*2); ctx.fill();
-  ctx.beginPath();
-  ctx.arc(R.x*cvs.width, R.y*cvs.height, 4, 0, Math.PI*2); ctx.fill();
-  ctx.strokeStyle = "#00ffff"; ctx.lineWidth = 2; ctx.beginPath();
-  ctx.moveTo(L.x*cvs.width, L.y*cvs.height);
-  ctx.lineTo(R.x*cvs.width, R.y*cvs.height); ctx.stroke();
+function drawOverlay(L,R){
+  ctx.fillStyle="#00ffff";
+  ctx.beginPath(); ctx.arc(L.x*cvs.width, L.y*cvs.height, 4, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(R.x*cvs.width, R.y*cvs.height, 4, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle="#00ffff"; ctx.lineWidth=2; ctx.beginPath();
+  ctx.moveTo(L.x*cvs.width, L.y*cvs.height); ctx.lineTo(R.x*cvs.width, R.y*cvs.height); ctx.stroke();
 }
 
-async function mainLoop() {
+async function mainLoop(){
   if(!running) return;
   ctx.drawImage(vid, 0, 0, cvs.width, cvs.height);
 
   const res = landmarker.detectForVideo(vid, performance.now());
-  if (res.faceLandmarks?.length) {
+  if (res.faceLandmarks?.length){
     const lm = res.faceLandmarks[0];
     const {L,R,hasIris} = irisCenters(lm);
-    drawOverlay(lm, L, R);
+    drawOverlay(L,R);
 
     const ang = faceAngleQuality(lm);
-    if (!ang.ok) { setQuality("#e39", `açı ${ang.angle.toFixed(0)}°`); ipdEl.textContent = "IPD: —"; requestAnimationFrame(mainLoop); return; }
-
+    if (!ang.ok){
+      setQuality("#e39", `açı ${ang.angle.toFixed(0)}°`);
+      ipdEl.textContent = "IPD: —";
+      return requestAnimationFrame(mainLoop);
+    }
     const [lx,ly] = v2img(L), [rx,ry] = v2img(R);
-    const px = Math.hypot(rx-lx, ry-ly);
-    if (mmPerPx) {
-      const mm = px * mmPerPx;
+    const pxDist = Math.hypot(rx-lx, ry-ly);
+
+    if (mmPerPx){
+      const mm = pxDist * mmPerPx;
       const med = pushMedian(medianWin, mm, MED_N);
-      ema = (ema == null) ? med : alpha*med + (1-alpha)*ema;
+      ema = (ema==null)? med : alpha*med + (1-alpha)*ema;
       ipdEl.textContent = `IPD ≈ ${fmt(ema)} mm ${hasIris?"":"(iris≈)"}`;
-      // basit uzaklık tabanlı kalite katkısı
       const distFacePx = Math.hypot((lm[1].x-0.5)*cvs.width,(lm[1].y-0.5)*cvs.height);
       const qDist = Math.max(0, 1 - distFacePx/(cvs.width*0.6));
       const q = 0.6*ang.qual + 0.4*qDist;
-      const color = (q<0.4)?"#e39":((q<0.7)?"#fb3":"#3ecf5e");
-      setQuality(color, q<0.4?"düşük":(q<0.7?"orta":"iyi"));
+      setQuality(q<0.4?"#e39":(q<0.7?"#fb3":"#3ecf5e"), q<0.4?"düşük":(q<0.7?"orta":"iyi"));
     } else {
       ipdEl.textContent = "IPD: kalibrasyon gerekli";
       setQuality("#e39", "kalibre yok");
@@ -184,57 +165,47 @@ async function mainLoop() {
   requestAnimationFrame(mainLoop);
 }
 
-// ---------- Kalibrasyonlar ----------
+// ------- Kalibrasyon (Aruco/Kart) -------
 function computeMmPerPxFromQuad(quadPx, realWidthMm){
-  // quadPx: [p0,p1,p2,p3] saat yönüyle; homografi ile dikdörtgeni düzelterek piksel genişliğini ölç
   const src = cv.matFromArray(4,1,cv.CV_32FC2, quadPx.flat());
-  // Hedef: gerçek dünyada kare/rect; enini realWidthMm kabul edip px hedef genişliği = ölçülecek
-  // Pratikte dikdörtgeni üstten görünümde yeniden örnekleyip genişliği ortalamasını alacağız
   const w = Math.round(Math.max(
-      Math.hypot(quadPx[1][0]-quadPx[0][0], quadPx[1][1]-quadPx[0][1]),
-      Math.hypot(quadPx[2][0]-quadPx[3][0], quadPx[2][1]-quadPx[3][1])
+    Math.hypot(quadPx[1][0]-quadPx[0][0], quadPx[1][1]-quadPx[0][1]),
+    Math.hypot(quadPx[2][0]-quadPx[3][0], quadPx[2][1]-quadPx[3][1])
   ));
   const h = Math.round(Math.max(
-      Math.hypot(quadPx[3][0]-quadPx[0][0], quadPx[3][1]-quadPx[0][1]),
-      Math.hypot(quadPx[2][0]-quadPx[1][0], quadPx[2][1]-quadPx[1][1])
+    Math.hypot(quadPx[3][0]-quadPx[0][0], quadPx[3][1]-quadPx[0][1]),
+    Math.hypot(quadPx[2][0]-quadPx[1][0], quadPx[2][1]-quadPx[1][1])
   ));
   const dst = cv.matFromArray(4,1,cv.CV_32FC2, [0,0, w,0, w,h, 0,h]);
   const H = cv.getPerspectiveTransform(src, dst);
-  const frame = cv.imread(cvs); // mevcut kareden kırpma
+  const frame = cv.imread(cvs);
   const warped = new cv.Mat();
   const dsize = new cv.Size(w,h);
-  cv.warpPerspective(frame, warped, H, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
-  // Marker genişliği piksel ~ w (üst kenar). mm/px = real_mm / px
+  cv.warpPerspective(frame, warped, H, dsize);
   const mmPerPx = realWidthMm / w;
-  // cleanup
   src.delete(); dst.delete(); H.delete(); frame.delete(); warped.delete();
   return mmPerPx;
 }
 
 function getArucoQuad(){
-  // ArUco ile tek kare tespit: kare köşelerini döndür
   if(!cvReady) return null;
   const frame = cv.imread(cvs);
-  const gray = new cv.Mat();
-  cv.cvtColor(frame, gray, cv.COLOR_RGBA2GRAY, 0);
+  const gray = new cv.Mat(); cv.cvtColor(frame, gray, cv.COLOR_RGBA2GRAY, 0);
   const dict = new cv.aruco_Dictionary(cv.DICT_4X4_50);
   const params = new cv.aruco_DetectorParameters();
   const detector = new cv.aruco_ArucoDetector(dict, params);
   const corners = new cv.MatVector(); const ids = new cv.Mat();
   detector.detectMarkers(gray, corners, ids);
-  let quad = null;
-  if (!ids.empty() && corners.size() > 0){
-    // ilk marker köşeleri (4x2 float)
-    const c = corners.get(0);
-    quad = [];
-    for (let i=0;i<4;i++){ quad.push([c.data32F[i*2], c.data32F[i*2+1]]); }
+  let quad=null;
+  if(!ids.empty() && corners.size()>0){
+    const c = corners.get(0); quad=[];
+    for(let i=0;i<4;i++){ quad.push([c.data32F[i*2], c.data32F[i*2+1]]); }
   }
   frame.delete(); gray.delete(); corners.delete(); ids.delete(); params.delete();
   return quad;
 }
 
 function getCardQuad(){
-  // Basit kart tespiti (fallback): kaba kenar bulup 4 köşe (kullanıcıyı dik tutmaya yönlendir)
   if(!cvReady) return null;
   const src = cv.imread(cvs);
   const gray = new cv.Mat(); cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
@@ -242,21 +213,21 @@ function getCardQuad(){
   const edges = new cv.Mat(); cv.Canny(gray, edges, 50, 150);
   const contours = new cv.MatVector(); const hierarchy = new cv.Mat();
   cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
-  let best = null, bestArea=0;
+  let best=null, bestArea=0;
   for(let i=0;i<contours.size();i++){
     const cnt = contours.get(i);
     const peri = cv.arcLength(cnt, true);
     const approx = new cv.Mat();
     cv.approxPolyDP(cnt, approx, 0.02*peri, true);
-    if (approx.rows === 4){
+    if(approx.rows===4){
       const area = Math.abs(cv.contourArea(approx));
-      if (area>bestArea){ bestArea=area; best=approx; }
-    } else approx.delete();
+      if(area>bestArea){ bestArea=area; best=approx; }
+    }else approx.delete();
     cnt.delete();
   }
-  let quad = null;
-  if (best){
-    quad = [];
+  let quad=null;
+  if(best){
+    quad=[];
     for(let i=0;i<4;i++){ quad.push([best.intPtr(i,0)[0], best.intPtr(i,0)[1]]); }
     best.delete();
   }
@@ -264,31 +235,24 @@ function getCardQuad(){
   return quad;
 }
 
-// ---------- UI eventleri ----------
+// ---- UI ----
 document.getElementById('start').onclick = async () => {
   await initCam(); await initMP(); running = true; requestAnimationFrame(mainLoop);
 };
-
-document.getElementById('reset').onclick = () => {
-  mmPerPx = null; ema = null; medianWin = []; scaleEl.textContent = '—';
-};
-
+document.getElementById('reset').onclick = () => { mmPerPx=null; ema=null; medianWin=[]; scaleEl.textContent='—'; };
 document.getElementById('calib').onclick = () => {
-  if (!cvReady) { alert("OpenCV.js hazır değil"); return; }
+  if(!cvReady){ alert("OpenCV.js hazır değil"); return; }
   const quad = getArucoQuad();
-  if (!quad){ alert("ArUco bulunamadı. Markerı kameraya net ve paralel göster."); return; }
-  const mpp = computeMmPerPxFromQuad(quad, MARKER_MM);
-  mmPerPx = mpp; scaleEl.textContent = `1 px = ${(mpp).toFixed(4)} mm (ArUco ${MARKER_MM}mm)`;
+  if(!quad){ alert("ArUco bulunamadı. Markerı net ve paralel göster."); return; }
+  mmPerPx = computeMmPerPxFromQuad(quad, MARKER_MM);
+  scaleEl.textContent = `1 px = ${mmPerPx.toFixed(4)} mm (ArUco ${MARKER_MM}mm)`;
 };
-
 document.getElementById('card').onclick = () => {
-  if (!cvReady) { alert("OpenCV.js hazır değil"); return; }
+  if(!cvReady){ alert("OpenCV.js hazır değil"); return; }
   const quad = getCardQuad();
-  if (!quad){ alert("Kart bulunamadı. Kameraya paralel ve tam görünür tut."); return; }
-  // kartın uzun kenarını referans al (85.60 mm)
-  // (homografi sonrası üst genişlik ~ pxWidth)
-  const mpp = computeMmPerPxFromQuad(quad, CARD_W_MM);
-  mmPerPx = mpp; scaleEl.textContent = `1 px = ${(mpp).toFixed(4)} mm (Kart 85.60mm)`;
+  if(!quad){ alert("Kart bulunamadı. Kameraya paralel ve tam görünür tut."); return; }
+  mmPerPx = computeMmPerPxFromQuad(quad, CARD_W_MM);
+  scaleEl.textContent = `1 px = ${mmPerPx.toFixed(4)} mm (Kart 85.60mm)`;
 };
 </script>
 </body>
