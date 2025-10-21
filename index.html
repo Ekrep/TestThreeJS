@@ -1,23 +1,23 @@
 <!doctype html>
 <html lang="tr">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>IPD Ölçer (Tek Dosya)</title>
-  <style>
-    :root{--bg:#0b0b0c;--card:#121317;--b:#2a2c34;--txt:#e8e9ee;--pri:#2b82ff}
-    html,body{height:100%} body{margin:0;background:var(--bg);color:var(--txt);font:14px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    #wrap{max-width:1000px;margin:16px auto;padding:12px}
-    h1{margin:0 0 10px;font-size:18px}
-    #row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
-    video,canvas{max-width:100%;border:1px solid #333;border-radius:10px}
-    #panel{flex:1 1 260px;min-width:260px;background:var(--card);border:1px solid var(--b);border-radius:12px;padding:12px}
-    button{cursor:pointer;background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 12px;margin:0 8px 8px 0}
-    button.sec{background:#273043}
-    .dot{width:10px;height:10px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:6px}
-    .row{margin:8px 0} code{background:#1a1d26;padding:2px 6px;border-radius:6px}
-    ul{margin:6px 0 0 18px}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>IPD Ölçer (Stabil Tek Dosya)</title>
+<style>
+  :root{--bg:#0b0b0c;--card:#121317;--b:#2a2c34;--txt:#e8e9ee;--pri:#2b82ff}
+  html,body{height:100%} body{margin:0;background:var(--bg);color:var(--txt);font:14px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  #wrap{max-width:1000px;margin:16px auto;padding:12px}
+  h1{margin:0 0 10px;font-size:18px}
+  #row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+  video,canvas{max-width:100%;border:1px solid #333;border-radius:10px}
+  #panel{flex:1 1 260px;min-width:260px;background:var(--card);border:1px solid var(--b);border-radius:12px;padding:12px}
+  button{cursor:pointer;background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 12px;margin:0 8px 8px 0}
+  button.sec{background:#273043}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:6px}
+  .row{margin:8px 0} code{background:#1a1d26;padding:2px 6px;border-radius:6px}
+  ul{margin:6px 0 0 18px}
+</style>
 </head>
 <body>
 <div id="wrap">
@@ -32,47 +32,55 @@
       <div class="row">Kalite: <b id="qtxt">yok</b></div>
       <div class="row">
         <button id="start">Kamerayı Aç</button>
-        <button id="calib" class="sec">ArUco ile Kalibre</button>
-        <button id="card"  class="sec">Kart ile Kalibre</button>
-        <button id="reset" class="sec">Sıfırla</button>
+        <button id="toggle" class="sec" disabled>Duraklat</button>
+        <button id="calib" class="sec" disabled>ArUco ile Kalibre</button>
+        <button id="card"  class="sec" disabled>Kart ile Kalibre</button>
+        <button id="reset" class="sec" disabled>Sıfırla</button>
       </div>
       <div class="row">Kalibrasyon: <code id="scale">—</code></div>
       <div class="row">İpuçları:
         <ul>
           <li>Yüzünü kameraya karşı tut (±20° içinde).</li>
           <li>ArUco/kartı yüz düzlemiyle paralel tut.</li>
-          <li>İyi aydınlatma, 720p+ çözünürlük.</li>
+          <li>İyi aydınlatma, 720p+ kamera önerilir.</li>
         </ul>
       </div>
     </div>
   </div>
 </div>
 
-<!-- OpenCV.js (Aruco modülü destekli build) -->
-<script async src="https://docs.opencv.org/4.x/opencv.js" onload="cvOnReady()"></script>
-
 <!-- Tek-dosya JS (module) -->
 <script type="module">
-import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+import { FaceLandmarker, FilesetResolver }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 
-const W = 1280, H = 720;              // hedef çözünürlük
-const MARKER_MM = 60;                 // bastığın ArUco kare kenarı (mm)
+const PROC_W = 640; // İşleme çözünürlüğü (performans için)
+const MARKER_MM = 60;                 // Baskıdaki ArUco kare kenarı (mm)
 const CARD_W_MM = 85.60, CARD_H_MM = 53.98;
 
-const vid = document.getElementById('cam');
-const cvs = document.getElementById('view');
-const ctx = cvs.getContext('2d');
+const vid   = document.getElementById('cam');
+const cvs   = document.getElementById('view');
+const ctx   = cvs.getContext('2d');
 const ipdEl = document.getElementById('ipd');
 const scaleEl = document.getElementById('scale');
-const qdot = document.getElementById('qdot');
-const qtxt = document.getElementById('qtxt');
+const qdot  = document.getElementById('qdot');
+const qtxt  = document.getElementById('qtxt');
 
-let landmarker, running = false, mmPerPx = null;
+const btnStart = document.getElementById('start');
+const btnToggle= document.getElementById('toggle');
+const btnCalib = document.getElementById('calib');
+const btnCard  = document.getElementById('card');
+const btnReset = document.getElementById('reset');
+
+let landmarker, running = false, paused = false, mmPerPx = null;
 let ema = null, alpha = 0.25;
 let medianWin = []; const MED_N = 15;
 
-let cvReady = false;
-window.cvOnReady = () => { cv.onRuntimeInitialized = () => { cvReady = true; }; };
+let cvReady = false, cvLoading = false;
+
+function setUIEnabled(on){
+  btnToggle.disabled = btnCalib.disabled = btnCard.disabled = btnReset.disabled = !on;
+}
 
 function setQuality(color, text){ qdot.style.background = color; qtxt.textContent = text; }
 function fmt(n){ return (n!=null && isFinite(n)) ? n.toFixed(1) : '—'; }
@@ -81,18 +89,22 @@ function v2img(p){ return [p.x*cvs.width, p.y*cvs.height]; }
 
 async function initCam(){
   const stream = await navigator.mediaDevices.getUserMedia({
-    video:{ facingMode:"user", width:{ideal:W}, height:{ideal:H}, frameRate:{ideal:30} }, audio:false
+    video:{ facingMode:"user", width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} }, audio:false
   });
   vid.srcObject = stream;
   await vid.play();
-  cvs.width = vid.videoWidth || W;
-  cvs.height = vid.videoHeight || H;
+  // İşleme kanvasını sabit genişliğe ölçekle (oranı koru)
+  const aspect = vid.videoWidth / vid.videoHeight;
+  cvs.width  = PROC_W;
+  cvs.height = Math.round(PROC_W / aspect);
 }
 
 async function initMP(){
-  const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+  const fs = await FilesetResolver.forVisionTasks(
+    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
   landmarker = await FaceLandmarker.createFromOptions(fs, {
-    baseOptions:{ modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" },
+    baseOptions:{ modelAssetPath:
+      "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" },
     outputFaceBlendshapes:false, runningMode:"VIDEO", numFaces:1
   });
 }
@@ -126,46 +138,72 @@ function drawOverlay(L,R){
   ctx.moveTo(L.x*cvs.width, L.y*cvs.height); ctx.lineTo(R.x*cvs.width, R.y*cvs.height); ctx.stroke();
 }
 
-async function mainLoop(){
-  if(!running) return;
-  ctx.drawImage(vid, 0, 0, cvs.width, cvs.height);
+function safeRAF(fn){ try{ requestAnimationFrame(fn); }catch{ setTimeout(fn, 16); } }
 
-  const res = landmarker.detectForVideo(vid, performance.now());
-  if (res.faceLandmarks?.length){
-    const lm = res.faceLandmarks[0];
-    const {L,R,hasIris} = irisCenters(lm);
-    drawOverlay(L,R);
+function loop(){
+  if(!running || paused) return safeRAF(loop);
+  try{
+    ctx.drawImage(vid, 0, 0, cvs.width, cvs.height);
+    const res = landmarker.detectForVideo(vid, performance.now());
+    if (res.faceLandmarks?.length){
+      const lm = res.faceLandmarks[0];
+      const {L,R,hasIris} = irisCenters(lm);
+      drawOverlay(L,R);
 
-    const ang = faceAngleQuality(lm);
-    if (!ang.ok){
-      setQuality("#e39", `açı ${ang.angle.toFixed(0)}°`);
-      ipdEl.textContent = "IPD: —";
-      return requestAnimationFrame(mainLoop);
-    }
-    const [lx,ly] = v2img(L), [rx,ry] = v2img(R);
-    const pxDist = Math.hypot(rx-lx, ry-ly);
+      const ang = faceAngleQuality(lm);
+      if (!ang.ok){
+        setQuality("#e39", `açı ${ang.angle.toFixed(0)}°`);
+        ipdEl.textContent = "IPD: —";
+        return safeRAF(loop);
+      }
+      const [lx,ly] = v2img(L), [rx,ry] = v2img(R);
+      const px = Math.hypot(rx-lx, ry-ly);
 
-    if (mmPerPx){
-      const mm = pxDist * mmPerPx;
-      const med = pushMedian(medianWin, mm, MED_N);
-      ema = (ema==null)? med : alpha*med + (1-alpha)*ema;
-      ipdEl.textContent = `IPD ≈ ${fmt(ema)} mm ${hasIris?"":"(iris≈)"}`;
-      const distFacePx = Math.hypot((lm[1].x-0.5)*cvs.width,(lm[1].y-0.5)*cvs.height);
-      const qDist = Math.max(0, 1 - distFacePx/(cvs.width*0.6));
-      const q = 0.6*ang.qual + 0.4*qDist;
-      setQuality(q<0.4?"#e39":(q<0.7?"#fb3":"#3ecf5e"), q<0.4?"düşük":(q<0.7?"orta":"iyi"));
+      if (mmPerPx){
+        const mm = px * mmPerPx;
+        const med = pushMedian(medianWin, mm, MED_N);
+        ema = (ema==null)? med : alpha*med + (1-alpha)*ema;
+        ipdEl.textContent = `IPD ≈ ${fmt(ema)} mm ${hasIris?"":"(iris≈)"}`;
+        const distFacePx = Math.hypot((lm[1].x-0.5)*cvs.width,(lm[1].y-0.5)*cvs.height);
+        const qDist = Math.max(0, 1 - distFacePx/(cvs.width*0.6));
+        const q = 0.6*ang.qual + 0.4*qDist;
+        setQuality(q<0.4?"#e39":(q<0.7?"#fb3":"#3ecf5e"), q<0.4?"düşük":(q<0.7?"orta":"iyi"));
+      } else {
+        ipdEl.textContent = "IPD: kalibrasyon gerekli";
+        setQuality("#e39", "kalibre yok");
+      }
     } else {
-      ipdEl.textContent = "IPD: kalibrasyon gerekli";
-      setQuality("#e39", "kalibre yok");
+      ipdEl.textContent = "IPD: — (yüz yok)";
+      setQuality("#e33", "yok");
     }
-  } else {
-    ipdEl.textContent = "IPD: — (yüz yok)";
-    setQuality("#e33", "yok");
+  } catch(e){
+    console.error(e);
   }
-  requestAnimationFrame(mainLoop);
+  safeRAF(loop);
 }
 
-// ------- Kalibrasyon (Aruco/Kart) -------
+// ------- OpenCV.js Lazy Load -------
+async function ensureOpenCV(){
+  if (cvReady) return true;
+  if (cvLoading) { // başka bir istek beklesin
+    while(!cvReady) await new Promise(r=>setTimeout(r,50));
+    return true;
+  }
+  cvLoading = true;
+  await new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    s.src = "https://docs.opencv.org/4.x/opencv.js";
+    s.async = true;
+    s.onload = () => {
+      cv['onRuntimeInitialized'] = () => { cvReady = true; resolve(); };
+    };
+    s.onerror = reject;
+    document.body.appendChild(s);
+  });
+  return true;
+}
+
+// ------- Kalibrasyon Araçları -------
 function computeMmPerPxFromQuad(quadPx, realWidthMm){
   const src = cv.matFromArray(4,1,cv.CV_32FC2, quadPx.flat());
   const w = Math.round(Math.max(
@@ -188,7 +226,6 @@ function computeMmPerPxFromQuad(quadPx, realWidthMm){
 }
 
 function getArucoQuad(){
-  if(!cvReady) return null;
   const frame = cv.imread(cvs);
   const gray = new cv.Mat(); cv.cvtColor(frame, gray, cv.COLOR_RGBA2GRAY, 0);
   const dict = new cv.aruco_Dictionary(cv.DICT_4X4_50);
@@ -206,27 +243,35 @@ function getArucoQuad(){
 }
 
 function getCardQuad(){
-  if(!cvReady) return null;
   const src = cv.imread(cvs);
   const gray = new cv.Mat(); cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
   cv.GaussianBlur(gray, gray, new cv.Size(5,5), 0);
   const edges = new cv.Mat(); cv.Canny(gray, edges, 50, 150);
   const contours = new cv.MatVector(); const hierarchy = new cv.Mat();
   cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
-  let best=null, bestArea=0;
+  let best = null, bestArea = 0;
+
   for(let i=0;i<contours.size();i++){
     const cnt = contours.get(i);
     const peri = cv.arcLength(cnt, true);
     const approx = new cv.Mat();
     cv.approxPolyDP(cnt, approx, 0.02*peri, true);
-    if(approx.rows===4){
+    if (approx.rows === 4){
       const area = Math.abs(cv.contourArea(approx));
-      if(area>bestArea){ bestArea=area; best=approx; }
-    }else approx.delete();
+      if (area > bestArea){
+        if (best) best.delete(); // *** ÖNCEKİ BESTİ SERBEST BIRAK ***
+        best = approx; bestArea = area;
+      } else {
+        approx.delete();
+      }
+    } else {
+      approx.delete();
+    }
     cnt.delete();
   }
+
   let quad=null;
-  if(best){
+  if (best){
     quad=[];
     for(let i=0;i<4;i++){ quad.push([best.intPtr(i,0)[0], best.intPtr(i,0)[1]]); }
     best.delete();
@@ -235,25 +280,46 @@ function getCardQuad(){
   return quad;
 }
 
-// ---- UI ----
-document.getElementById('start').onclick = async () => {
-  await initCam(); await initMP(); running = true; requestAnimationFrame(mainLoop);
+// ---- Olaylar ----
+btnStart.onclick = async () => {
+  btnStart.disabled = true;
+  await initCam();
+  await initMP();
+  running = true; paused = false; setUIEnabled(true); btnToggle.textContent = "Duraklat";
+  loop();
 };
-document.getElementById('reset').onclick = () => { mmPerPx=null; ema=null; medianWin=[]; scaleEl.textContent='—'; };
-document.getElementById('calib').onclick = () => {
-  if(!cvReady){ alert("OpenCV.js hazır değil"); return; }
+
+btnToggle.onclick = () => {
+  paused = !paused;
+  btnToggle.textContent = paused ? "Devam" : "Duraklat";
+  if (!paused) loop();
+};
+
+btnReset.onclick = () => {
+  mmPerPx = null; ema = null; medianWin = []; scaleEl.textContent = '—';
+};
+
+btnCalib.onclick = async () => {
+  await ensureOpenCV();
   const quad = getArucoQuad();
-  if(!quad){ alert("ArUco bulunamadı. Markerı net ve paralel göster."); return; }
+  if (!quad){ alert("ArUco bulunamadı. Markerı net ve paralel göster."); return; }
   mmPerPx = computeMmPerPxFromQuad(quad, MARKER_MM);
   scaleEl.textContent = `1 px = ${mmPerPx.toFixed(4)} mm (ArUco ${MARKER_MM}mm)`;
 };
-document.getElementById('card').onclick = () => {
-  if(!cvReady){ alert("OpenCV.js hazır değil"); return; }
+
+btnCard.onclick = async () => {
+  await ensureOpenCV();
   const quad = getCardQuad();
-  if(!quad){ alert("Kart bulunamadı. Kameraya paralel ve tam görünür tut."); return; }
+  if (!quad){ alert("Kart bulunamadı. Kameraya paralel ve tam görünür tut."); return; }
   mmPerPx = computeMmPerPxFromQuad(quad, CARD_W_MM);
   scaleEl.textContent = `1 px = ${mmPerPx.toFixed(4)} mm (Kart 85.60mm)`;
 };
+
+// Sekme gizlenince otomatik duraklat (pil/CPU koruma)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { paused = true; btnToggle.textContent = "Devam"; }
+});
+
 </script>
 </body>
 </html>
