@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>IPD Ölçer – Hibrit (Tek Dosya)</title>
+<title>IPD Ölçer – Otomatik (MediaPipe + ArUco/Kart → Depth-from-Iris)</title>
 <style>
   :root{--bg:#0b0b0c;--card:#121317;--b:#2a2c34;--txt:#e8e9ee;--pri:#2b82ff}
   html,body{height:100%} body{margin:0;background:var(--bg);color:var(--txt);font:14px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
@@ -12,54 +12,63 @@
   #row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
   video,canvas{max-width:100%;border:1px solid #333;border-radius:10px}
   #panel{flex:1 1 260px;min-width:260px;background:var(--card);border:1px solid var(--b);border-radius:12px;padding:12px}
-  button{cursor:pointer;background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 12px;margin:0 8px 8px 0}
-  button.sec{background:#273043}
   .dot{width:10px;height:10px;border-radius:50%;display:inline-block;vertical-align:middle;margin-right:6px}
   .row{margin:8px 0} code{background:#1a1d26;padding:2px 6px;border-radius:6px}
-  ul{margin:6px 0 0 18px}
+  .badge{display:inline-block;padding:2px 6px;border-radius:6px;background:#273043;margin-left:6px}
+  #starter{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000a;backdrop-filter:blur(2px)}
+  #starter .card{background:#111823;border:1px solid #2a2c34;border-radius:12px;padding:16px;max-width:420px;text-align:center}
+  #starter button{cursor:pointer;background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 16px;margin-top:10px}
+  .muted{opacity:.75}
 </style>
 </head>
 <body>
 <div id="wrap">
-  <h1>IPD Ölçer (MediaPipe + ArUco/Kart kalibrasyon → Depth-from-Iris)</h1>
+  <h1>IPD Ölçer (Otomatik)</h1>
   <div id="row">
     <div>
       <video id="cam" autoplay playsinline muted></video>
       <canvas id="view"></canvas>
     </div>
     <div id="panel">
-      <div class="row"><span class="dot" id="qdot" style="background:#e33"></span><b id="ipd">IPD: —</b></div>
-      <div class="row">Kalite: <b id="qtxt">yok</b></div>
-      <div class="row">
-        <button id="start">Kamerayı Aç</button>
-        <button id="toggle" class="sec" disabled>Duraklat</button>
-        <button id="calib" class="sec" disabled>ArUco ile Kalibre</button>
-        <button id="card"  class="sec" disabled>Kart ile Kalibre</button>
-        <button id="reset" class="sec" disabled>Sıfırla</button>
+      <div class="row"><span class="dot" id="qdot" style="background:#e33"></span>
+        <b id="ipd">IPD: —</b>
+        <span class="badge" id="mode">—</span>
       </div>
+      <div class="row">Kalite: <b id="qtxt">yok</b></div>
       <div class="row">Kalibrasyon: <code id="scale">—</code></div>
-      <div class="row">İpuçları:
-        <ul>
-          <li>İlk kalibrasyonda marker/kartı yüzüne yakın ve paralel tut.</li>
-          <li>Sonrasında marker gerekmez; hareket edebilirsin.</li>
-          <li>İyi ışık, 720p+ kamera. Yüzü ~karşıdan tut (±20°).</li>
-        </ul>
+      <div class="row muted" id="diag">hazırlandı…</div>
+      <div class="row">
+        <small class="muted">
+          İpuçları: Yüzünü kameraya karşı tut (±20°). İlk kalibrasyonda ArUco/kart yüzüne yakın ve paralel olsun.
+          Başarılı olursa cihaz profiline kaydedilir ve bir daha istemez.
+        </small>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Tek-dosya JS (module) -->
+<!-- Başlat overlay (izin gereği) -->
+<div id="starter">
+  <div class="card">
+    <div style="font-weight:600;margin-bottom:6px">Kamera erişimi gerekli</div>
+    <div class="muted">Güvenli bağlantıda (HTTPS/localhost) tek dokunuşla başlatılır.</div>
+    <button id="btnStart">Başlat</button>
+  </div>
+</div>
+
 <script type="module">
-import { FaceLandmarker, FilesetResolver }
-  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
+import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 
-const PROC_W = 640;                 // İşleme çözünürlüğü (performans)
-const TARGET_FPS = 20;              // İşleme FPS hedefi
-const MARKER_MM = 60;               // ArUco baskı kare kenarı (mm) (A4'e %100 ölçekle)
-const CARD_W_MM = 85.60;            // Kart uzun kenar mm
-const IRIS_INIT_MM = 5.8;           // Varsayılan iris yarıçapı (mm), kalibrasyon anında kişiselleştirilecek
+/* ---- Sabitler ---- */
+const PROC_W = 640;             // işleme genişliği
+const TARGET_FPS = 20;          // throttle
+const MARKER_MM = 60;           // ArUco kare kenarı (mm) – A4'e %100 ölçekle bas
+const CARD_W_MM = 85.60;        // ID-1 kart uzun kenar (mm)
+const IRIS_INIT_MM = 5.8;       // varsayılan iris yarıçapı (mm) – kalibrasyonla kişiselleşir
+const CAL_SAMPLES = 5;          // kalibrasyonda kaç kare medyanı
+const ANGLE_MAX = 20;           // yüz açı eşiği (°)
 
+/* ---- Elemanlar ---- */
 const vid   = document.getElementById('cam');
 const cvs   = document.getElementById('view');
 const ctx   = cvs.getContext('2d');
@@ -67,302 +76,342 @@ const ipdEl = document.getElementById('ipd');
 const scaleEl = document.getElementById('scale');
 const qdot  = document.getElementById('qdot');
 const qtxt  = document.getElementById('qtxt');
+const diag  = document.getElementById('diag');
+const modeEl= document.getElementById('mode');
+const starter = document.getElementById('starter');
+const btnStart= document.getElementById('btnStart');
 
-const btnStart = document.getElementById('start');
-const btnToggle= document.getElementById('toggle');
-const btnCalib = document.getElementById('calib');
-const btnCard  = document.getElementById('card');
-const btnReset = document.getElementById('reset');
+/* ---- Durum ---- */
+let landmarker, running=false, paused=false;
+let ema=null, alpha=0.25, medianWin=[], MED_N=15;
+let irisMmPersonal=null;     // kişisel iris yarıçapı (mm)
+let cvReady=false, cvLoading=false;
+let currentTrack=null;
 
-let landmarker, running = false, paused = false;
-let ema = null, alpha = 0.25;
-let medianWin = []; const MED_N = 15;
+/* ---- Yardımcılar ---- */
+const fmt = n => (n!=null && isFinite(n)) ? n.toFixed(1) : '—';
+const setQ = (c,t)=>{ qdot.style.background=c; qtxt.textContent=t; };
+const log = s => diag.textContent = s;
+function pushMedian(win, v, N){ win.push(v); if(win.length>N) win.shift(); const s=[...win].sort((a,b)=>a-b); const m=(s.length-1)/2; return (s.length%2)? s[(s.length-1)/2] : 0.5*(s[Math.floor(m)]+s[Math.ceil(m)]); }
+function dist(a,b){ const dx=a[0]-b[0], dy=a[1]-b[1]; return Math.hypot(dx,dy); }
+const v2img = (p) => [p.x*cvs.width, p.y*cvs.height];
 
-// Kalibrasyon durumları
-let mmPerPx_marker = null;      // marker/karttan px→mm (marker düzlemi)
-let irisMmPersonal = null;      // kullanıcının kişisel iris yarıçapı (mm) (kalibrasyonda hesaplanır)
-
-let cvReady = false, cvLoading = false;
-
-// ---------- Yardımcılar ----------
-function setUIEnabled(on){ btnToggle.disabled = btnCalib.disabled = btnCard.disabled = btnReset.disabled = !on; }
-function setQuality(color, text){ qdot.style.background = color; qtxt.textContent = text; }
-function fmt(n){ return (n!=null && isFinite(n)) ? n.toFixed(1) : '—'; }
-function pushMedian(win, v, N){ win.push(v); if (win.length>N) win.shift(); const s=[...win].sort((a,b)=>a-b); const m=(s.length-1)/2; return (s.length%2)? s[(s.length-1)/2] : 0.5*(s[Math.floor(m)]+s[Math.ceil(m)]); }
-function v2img(p){ return [p.x*cvs.width, p.y*cvs.height]; }
-function dist2(a,b){ const dx=a[0]-b[0], dy=a[1]-b[1]; return Math.hypot(dx,dy); }
-
-// MediaPipe iris: 468 merkez, 469-472 çevre (4 nokta). Yoksa göz konturundan yaklaşımlar.
-function irisCenterAndRadiusPx(lm, left=true){
-  const cIdx = left ? 468 : 473;
-  const rIdx = left ? [469,470,471,472] : [474,475,476,477];
-  const C = lm[cIdx];
-  if (C && lm[rIdx[0]]){
-    const C2 = [C.x*cvs.width, C.y*cvs.height];
-    let R=0, n=0;
-    for(const i of rIdx){ if(lm[i]){ R += dist2(C2, [lm[i].x*cvs.width, lm[i].y*cvs.height]); n++; } }
-    return { center:C2, r: (n? R/n : 0), ok:true };
-  }
-  // fallback: göz konturundan kaba yarıçap
-  const ids = left ? [33,133,159,145] : [263,362,386,374];
-  let sx=0, sy=0, n=0; for(const i of ids){ if(lm[i]){ sx+=lm[i].x*cvs.width; sy+=lm[i].y*cvs.height; n++; } }
-  if(!n) return {center:[0,0], r:0, ok:false};
-  const cen=[sx/n, sy/n]; let rr=0, m=0; for(const i of ids){ if(lm[i]){ rr+=dist2(cen,[lm[i].x*cvs.width,lm[i].y*cvs.height]); m++; } }
-  return {center:cen, r:(m? rr/m*0.5:0), ok:false};
+function deviceKey(track){
+  const s = track.getSettings();
+  return `ipdprof:${s.deviceId||'na'}:${s.width}x${s.height}:${s.facingMode||'user'}`;
+}
+function saveProfile(track){
+  if(!irisMmPersonal) return;
+  localStorage.setItem(deviceKey(track), JSON.stringify({ irisMmPersonal, ts:Date.now() }));
+}
+function loadProfile(track){
+  const raw = localStorage.getItem(deviceKey(track));
+  if(!raw) return false;
+  try{
+    const p = JSON.parse(raw);
+    if(p && p.irisMmPersonal>3 && p.irisMmPersonal<8){
+      irisMmPersonal = p.irisMmPersonal;
+      scaleEl.textContent = `profil: iris ≈ ${irisMmPersonal.toFixed(2)} mm`;
+      modeEl.textContent = "Profil yüklendi";
+      return true;
+    }
+  }catch{}
+  return false;
 }
 
-function faceAngleQuality(lm){
-  if(!lm[33] || !lm[263] || !lm[1]) return {ok:false, angle:999, qual:0};
-  const L = [lm[33].x*cvs.width, lm[33].y*cvs.height];
-  const R = [lm[263].x*cvs.width, lm[263].y*cvs.height];
-  const eyeSlopeDeg = Math.abs(Math.atan2(R[1]-L[1], R[0]-L[0]) * 180/Math.PI);
-  const eyeDist = dist2(L,R);
-  const nose = [lm[1].x*cvs.width, lm[1].y*cvs.height];
-  const cen = [(L[0]+R[0])/2,(L[1]+R[1])/2];
-  const off = dist2(cen, nose);
-  const qSlope = Math.max(0, 1 - eyeSlopeDeg/20);
-  const qCent  = Math.max(0, 1 - off / (eyeDist*0.6));
-  const qual = 0.6*qSlope + 0.4*qCent;
-  return {ok:(eyeSlopeDeg<=20), angle:eyeSlopeDeg, qual};
-}
-
-function drawLR(Lc,Rc){ // küçük overlay
-  ctx.fillStyle="#00ffff";
-  ctx.beginPath(); ctx.arc(Lc[0], Lc[1], 4, 0, Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.arc(Rc[0], Rc[1], 4, 0, Math.PI*2); ctx.fill();
-  ctx.strokeStyle="#00ffff"; ctx.lineWidth=2; ctx.beginPath();
-  ctx.moveTo(Lc[0], Lc[1]); ctx.lineTo(Rc[0], Rc[1]); ctx.stroke();
-}
-
-// ---------- Kamera & MP başlat ----------
-async function initCam(){
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video:{ facingMode:"user", width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} }, audio:false
-  });
-  vid.srcObject = stream;
-  await vid.play();
-  const aspect = vid.videoWidth / vid.videoHeight;
-  cvs.width  = PROC_W;
-  cvs.height = Math.round(PROC_W / aspect);
-}
-
+/* ---- MediaPipe ---- */
 async function initMP(){
-  const fs = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+  const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
   landmarker = await FaceLandmarker.createFromOptions(fs, {
-    baseOptions:{ modelAssetPath:
-      "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" },
+    baseOptions:{ modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task" },
     outputFaceBlendshapes:false, runningMode:"VIDEO", numFaces:1
   });
 }
 
-// ---------- Döngü (throttle) ----------
-let lastT = 0, useRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
-function tick(){
-  if(!running || paused) return;
-  const now = performance.now();
-  if (now - lastT < 1000/TARGET_FPS) { return scheduleNext(); }
-  lastT = now;
-
-  try{
-    ctx.drawImage(vid, 0, 0, cvs.width, cvs.height);
-    const res = landmarker.detectForVideo(vid, now);
-    if (res.faceLandmarks?.length){
-      const lm = res.faceLandmarks[0];
-      const L = irisCenterAndRadiusPx(lm, true);
-      const R = irisCenterAndRadiusPx(lm, false);
-      drawLR(L.center, R.center);
-
-      const ang = faceAngleQuality(lm);
-      if (!ang.ok){ setQuality("#e39", `açı ${ang.angle.toFixed(0)}°`); ipdEl.textContent = "IPD: —"; return scheduleNext(); }
-
-      const eyeGapPx = dist2(L.center, R.center);
-
-      if (irisMmPersonal && L.r>0 && R.r>0){
-        // Depth-from-Iris ölçek: IPD_mm = eyeGap_px * (irisMmPersonal / irisRadius_px_now)
-        const irisRpxNow = 0.5*(L.r + R.r);
-        const mm = eyeGapPx * (irisMmPersonal / irisRpxNow);
-        const med = pushMedian(medianWin, mm, MED_N);
-        ema = (ema==null)? med : alpha*med + (1-alpha)*ema;
-        ipdEl.textContent = `IPD ≈ ${fmt(ema)} mm`;
-        // kalite
-        const distFacePx = Math.hypot((lm[1].x-0.5)*cvs.width,(lm[1].y-0.5)*cvs.height);
-        const qDist = Math.max(0, 1 - distFacePx/(cvs.width*0.6));
-        const q = 0.6*ang.qual + 0.4*qDist;
-        setQuality(q<0.4?"#e39":(q<0.7?"#fb3":"#3ecf5e"), q<0.4?"düşük":(q<0.7?"orta":"iyi"));
-      } else {
-        ipdEl.textContent = "IPD: kalibrasyon gerekli";
-        setQuality("#e39", "kalibre yok");
-      }
-    } else {
-      ipdEl.textContent = "IPD: — (yüz yok)";
-      setQuality("#e33", "yok");
-    }
-  }catch(e){ console.error(e); }
-  scheduleNext();
+function irisCR(lm, left=true){
+  const c = left?468:473, rim = left?[469,470,471,472]:[474,475,476,477];
+  const C=lm[c];
+  if(C && lm[rim[0]]){
+    const C2=v2img(C);
+    let R=0,n=0; for(const i of rim){ if(lm[i]){ R+=dist(C2, v2img(lm[i])); n++; } }
+    return {center:C2, r:(n?R/n:0), ok:true};
+  }
+  // fallback: göz konturu
+  const ids = left?[33,133,159,145]:[263,362,386,374];
+  let sx=0, sy=0, n=0; for(const i of ids){ if(lm[i]){ sx+=lm[i].x*cvs.width; sy+=lm[i].y*cvs.height; n++; } }
+  if(!n) return {center:[0,0], r:0, ok:false};
+  const cen=[sx/n, sy/n]; let rr=0, m=0; for(const i of ids){ if(lm[i]){ rr+=dist(cen, v2img(lm[i])); m++; } }
+  return {center:cen, r:(m? rr/m*0.5:0), ok:false};
 }
-function scheduleNext(){
-  if(!running || paused) return;
-  if (useRVFC) vid.requestVideoFrameCallback(()=>tick());
-  else requestAnimationFrame(tick);
+function faceAngleQuality(lm){
+  if(!lm[33]||!lm[263]||!lm[1]) return {ok:false, angle:999, qual:0};
+  const L=v2img(lm[33]), R=v2img(lm[263]);
+  const eyeSlopeDeg = Math.abs(Math.atan2(R[1]-L[1], R[0]-L[0])*180/Math.PI);
+  const eyeDist = dist(L,R);
+  const nose=v2img(lm[1]); const cen=[(L[0]+R[0])/2,(L[1]+R[1])/2];
+  const off=dist(cen,nose);
+  const qSlope = Math.max(0, 1 - eyeSlopeDeg/ANGLE_MAX);
+  const qCent  = Math.max(0, 1 - off/(eyeDist*0.6));
+  const qual = 0.6*qSlope + 0.4*qCent;
+  return {ok:(eyeSlopeDeg<=ANGLE_MAX), angle:eyeSlopeDeg, qual};
 }
 
-// ---------- OpenCV.js (lazy) ----------
+/* ---- OpenCV (lazy) ---- */
 async function ensureOpenCV(){
-  if (cvReady) return true;
-  if (cvLoading){ while(!cvReady) await new Promise(r=>setTimeout(r,50)); return true; }
-  cvLoading = true;
-  await new Promise((resolve, reject)=>{
-    const s = document.createElement('script');
-    s.src = "https://docs.opencv.org/4.x/opencv.js";
-    s.async = true;
-    s.onload = () => { cv['onRuntimeInitialized'] = () => { cvReady = true; resolve(); }; };
-    s.onerror = reject;
-    document.body.appendChild(s);
+  if(cvReady) return true;
+  if(cvLoading){ while(!cvReady) await new Promise(r=>setTimeout(r,50)); return true; }
+  cvLoading=true;
+  await new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src="https://docs.opencv.org/4.x/opencv.js"; s.async=true;
+    s.onload=()=>{ cv['onRuntimeInitialized']=()=>{ cvReady=true; resolve(); }; };
+    s.onerror=reject; document.body.appendChild(s);
   });
   return true;
 }
-
-// ---------- Kalibrasyon (yalnızca bir kare işlenir) ----------
 function computeMmPerPxFromQuad(quadPx, realWidthMm){
-  const src = cv.matFromArray(4,1,cv.CV_32FC2, quadPx.flat());
-  const w = Math.round(Math.max(
+  const src=cv.matFromArray(4,1,cv.CV_32FC2, quadPx.flat());
+  const w=Math.round(Math.max(
     Math.hypot(quadPx[1][0]-quadPx[0][0], quadPx[1][1]-quadPx[0][1]),
     Math.hypot(quadPx[2][0]-quadPx[3][0], quadPx[2][1]-quadPx[3][1])
   ));
-  const h = Math.round(Math.max(
+  const h=Math.round(Math.max(
     Math.hypot(quadPx[3][0]-quadPx[0][0], quadPx[3][1]-quadPx[0][1]),
     Math.hypot(quadPx[2][0]-quadPx[1][0], quadPx[2][1]-quadPx[1][1])
   ));
-  const dst = cv.matFromArray(4,1,cv.CV_32FC2, [0,0, w,0, w,h, 0,h]);
-  const H = cv.getPerspectiveTransform(src, dst);
-  const frame = cv.imread(cvs);
-  const warped = new cv.Mat();
-  const dsize = new cv.Size(w,h);
-  cv.warpPerspective(frame, warped, H, dsize);
+  const dst=cv.matFromArray(4,1,cv.CV_32FC2,[0,0,w,0,w,h,0,h]);
+  const H=cv.getPerspectiveTransform(src,dst);
+  const frame=cv.imread(cvs); const warped=new cv.Mat();
+  cv.warpPerspective(frame, warped, H, new cv.Size(w,h));
   const mmPerPx = realWidthMm / w;
   src.delete(); dst.delete(); H.delete(); frame.delete(); warped.delete();
   return mmPerPx;
 }
-
 function getArucoQuad(){
-  const frame = cv.imread(cvs);
-  const gray = new cv.Mat(); cv.cvtColor(frame, gray, cv.COLOR_RGBA2GRAY, 0);
-  const dict = new cv.aruco_Dictionary(cv.DICT_4X4_50);
-  const params = new cv.aruco_DetectorParameters();
-  const detector = new cv.aruco_ArucoDetector(dict, params);
-  const corners = new cv.MatVector(); const ids = new cv.Mat();
-  detector.detectMarkers(gray, corners, ids);
+  const frame=cv.imread(cvs); const gray=new cv.Mat(); cv.cvtColor(frame,gray,cv.COLOR_RGBA2GRAY,0);
+  const dict=new cv.aruco_Dictionary(cv.DICT_4X4_50);
+  const params=new cv.aruco_DetectorParameters();
+  const detector=new cv.aruco_ArucoDetector(dict,params);
+  const corners=new cv.MatVector(); const ids=new cv.Mat();
+  detector.detectMarkers(gray,corners,ids);
   let quad=null;
   if(!ids.empty() && corners.size()>0){
-    const c = corners.get(0); quad=[];
-    for(let i=0;i<4;i++){ quad.push([c.data32F[i*2], c.data32F[i*2+1]]); }
+    const c=corners.get(0); quad=[];
+    for(let i=0;i<4;i++) quad.push([c.data32F[i*2], c.data32F[i*2+1]]);
   }
   frame.delete(); gray.delete(); corners.delete(); ids.delete(); params.delete();
   return quad;
 }
-
 function getCardQuad(){
-  const src = cv.imread(cvs);
-  const gray = new cv.Mat(); cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY, 0);
-  cv.GaussianBlur(gray, gray, new cv.Size(5,5), 0);
-  const edges = new cv.Mat(); cv.Canny(gray, edges, 50, 150);
-  const contours = new cv.MatVector(); const hierarchy = new cv.Mat();
-  cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
-  let best = null, bestArea = 0;
+  const src=cv.imread(cvs); const gray=new cv.Mat(); cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY,0);
+  cv.GaussianBlur(gray,gray,new cv.Size(5,5),0);
+  const edges=new cv.Mat(); cv.Canny(gray,edges,50,150);
+  const contours=new cv.MatVector(); const hierarchy=new cv.Mat();
+  cv.findContours(edges,contours,hierarchy,cv.RETR_LIST,cv.CHAIN_APPROX_SIMPLE);
+  let best=null, area=0;
   for(let i=0;i<contours.size();i++){
-    const cnt = contours.get(i);
-    const peri = cv.arcLength(cnt, true);
-    const approx = new cv.Mat();
-    cv.approxPolyDP(cnt, approx, 0.02*peri, true);
-    if (approx.rows === 4){
-      const area = Math.abs(cv.contourArea(approx));
-      if (area > bestArea){
-        if (best) best.delete();
-        best = approx; bestArea = area;
-      } else {
-        approx.delete();
-      }
-    } else { approx.delete(); }
+    const cnt=contours.get(i);
+    const peri=cv.arcLength(cnt,true); const approx=new cv.Mat();
+    cv.approxPolyDP(cnt,approx,0.02*peri,true);
+    if(approx.rows===4){
+      const a=Math.abs(cv.contourArea(approx));
+      if(a>area){ if(best)best.delete(); best=approx; area=a; } else approx.delete();
+    } else approx.delete();
     cnt.delete();
   }
   let quad=null;
-  if (best){
-    quad=[];
-    for(let i=0;i<4;i++){ quad.push([best.intPtr(i,0)[0], best.intPtr(i,0)[1]]); }
-    best.delete();
-  }
+  if(best){ quad=[]; for(let i=0;i<4;i++) quad.push([best.intPtr(i,0)[0], best.intPtr(i,0)[1]]); best.delete(); }
   src.delete(); gray.delete(); edges.delete(); contours.delete(); hierarchy.delete();
   return quad;
 }
 
-// Kişisel iris (mm) hesapla: kalibrasyon anındaki iris yarıçap px * (marker mm/px)
-function estimateIrisMmPersonal(mmPerPx){
-  // UI’da o an görünen karede iris r_px ölç
-  const res = landmarker.detectForVideo(vid, performance.now());
-  if (!res.faceLandmarks?.length) return null;
-  const lm = res.faceLandmarks[0];
-  const L = irisCenterAndRadiusPx(lm, true);
-  const R = irisCenterAndRadiusPx(lm, false);
-  if (L.r>0 && R.r>0){
-    const rpx = 0.5*(L.r + R.r);
-    return rpx * mmPerPx; // kişinin iris yarıçapı (mm)
+/* ---- Kamera ---- */
+async function openCamera(preferBack=false){
+  const constraintsBase = (fm)=>({
+    video:{ facingMode: fm, width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30} }, audio:false
+  });
+  async function tryOpen(fm){
+    const stream = await navigator.mediaDevices.getUserMedia(constraintsBase(fm));
+    const track = stream.getVideoTracks()[0];
+    try { await track.applyConstraints({ width:{exact:1280}, height:{exact:720}, advanced:[{zoom:1.0},{resizeMode:"none"}] }); } catch{}
+    return {stream, track};
   }
-  return null;
+
+  try{
+    // ön/arka dene (tercihe göre)
+    let fm1 = preferBack ? {exact:"environment"} : "user";
+    let fm2 = preferBack ? "user" : {exact:"environment"};
+
+    let {stream, track} = await tryOpen(fm1);
+    // auto-framing/zoom varsa arka kameraya geç
+    const s = track.getSettings();
+    const looksZoomy = (typeof s.zoom === "number" && s.zoom > 1.01);
+    if (!preferBack && looksZoomy){
+      try { track.stop(); stream.getTracks().forEach(t=>t.stop()); } catch{}
+      ({stream, track} = await tryOpen(fm2));
+    }
+
+    vid.srcObject = stream;
+    await vid.play();
+    currentTrack = track;
+    const aspect = vid.videoWidth / vid.videoHeight;
+    cvs.width = PROC_W; cvs.height = Math.round(PROC_W / aspect);
+
+    // cihaz profili yüklemeyi dene
+    const prof = loadProfile(track);
+    if(prof) { modeEl.textContent = "Profil"; }
+
+    // ayar değişimi izleyici: değişirse otomatik re-calib
+    let last = track.getSettings();
+    setInterval(()=>{
+      const st = track.getSettings();
+      if (st.width!==last.width || st.height!==last.height || st.zoom!==last.zoom){
+        irisMmPersonal = null; ema=null; medianWin=[];
+        scaleEl.textContent='—'; setQ('#e39','yeniden kalibre gerekiyor'); modeEl.textContent = "Ayar değişti";
+      }
+      last = st;
+    }, 700);
+
+  }catch(e){
+    throw e;
+  }
 }
 
-// ---------- Olaylar ----------
-btnStart.onclick = async () => {
-  btnStart.disabled = true;
-  await initCam();
-  await initMP();
-  running = true; paused = false; setUIEnabled(true); btnToggle.textContent = "Duraklat";
-  // döngüyü başlat
-  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) vid.requestVideoFrameCallback(()=>tick());
-  else requestAnimationFrame(tick);
-};
-
-btnToggle.onclick = () => {
-  paused = !paused;
-  btnToggle.textContent = paused ? "Devam" : "Duraklat";
-  if (!paused) scheduleNext();
-};
-
-btnReset.onclick = () => {
-  mmPerPx_marker = null; irisMmPersonal = null; ema = null; medianWin = [];
-  scaleEl.textContent = '—'; ipdEl.textContent = 'IPD: —'; setQuality("#e39","kalibre yok");
-};
-
-btnCalib.onclick = async () => {
+/* ---- Otomatik Kalibrasyon: ArUco → Kart → (fallback) ---- */
+async function autoCalibrate(timeoutMs=8000){
   await ensureOpenCV();
-  // bir kareyi sabitle
-  ctx.drawImage(vid, 0, 0, cvs.width, cvs.height);
-  const quad = getArucoQuad();
-  if (!quad){ alert("ArUco bulunamadı. Markerı net ve paralel göster."); return; }
-  mmPerPx_marker = computeMmPerPxFromQuad(quad, MARKER_MM);
-  // kişisel iris mm (kalibrasyon karesinde)
-  const irisMm = estimateIrisMmPersonal(mmPerPx_marker) ?? IRIS_INIT_MM;
-  irisMmPersonal = irisMm;
-  scaleEl.textContent = `1 px = ${mmPerPx_marker.toFixed(4)} mm; iris ≈ ${irisMmPersonal.toFixed(2)} mm`;
-  setQuality("#3ecf5e","kalibre ok");
-};
+  const t0 = performance.now();
+  const samples = [];
+  modeEl.textContent = "Kalibrasyon";
 
-btnCard.onclick = async () => {
-  await ensureOpenCV();
-  ctx.drawImage(vid, 0, 0, cvs.width, cvs.height);
-  const quad = getCardQuad();
-  if (!quad){ alert("Kart bulunamadı. Kameraya paralel ve tam görünür tut."); return; }
-  mmPerPx_marker = computeMmPerPxFromQuad(quad, CARD_W_MM);
-  const irisMm = estimateIrisMmPersonal(mmPerPx_marker) ?? IRIS_INIT_MM;
-  irisMmPersonal = irisMm;
-  scaleEl.textContent = `1 px = ${mmPerPx_marker.toFixed(4)} mm; iris ≈ ${irisMmPersonal.toFixed(2)} mm`;
-  setQuality("#3ecf5e","kalibre ok");
-};
+  while(performance.now() - t0 < timeoutMs){
+    // kareyi çiz
+    ctx.drawImage(vid, 0, 0, cvs.width, cvs.height);
 
+    // 1) ArUco
+    let quad = getArucoQuad();
+    let mpp = null;
+    if (quad) {
+      mpp = computeMmPerPxFromQuad(quad, MARKER_MM);
+    } else {
+      // 2) Kart
+      quad = getCardQuad();
+      if (quad) mpp = computeMmPerPxFromQuad(quad, CARD_W_MM);
+    }
+
+    if (mpp){
+      // O anda iris r_px ölç
+      const res = landmarker.detectForVideo(vid, performance.now());
+      if (res.faceLandmarks?.length){
+        const lm = res.faceLandmarks[0];
+        const L = irisCR(lm,true), R=irisCR(lm,false);
+        if (L.r>0 && R.r>0){
+          samples.push({ mpp, rpx:0.5*(L.r+R.r) });
+          if (samples.length >= CAL_SAMPLES) break;
+        }
+      }
+    }
+    await new Promise(r=>setTimeout(r, 80));
+  }
+
+  if (samples.length){
+    // medyan seç
+    samples.sort((a,b)=>a.rpx-b.rpx);
+    const pick = samples[Math.floor(samples.length/2)];
+    irisMmPersonal = pick.rpx * pick.mpp;
+    scaleEl.textContent = `iris ≈ ${irisMmPersonal.toFixed(2)} mm`;
+    modeEl.textContent = "Kalibre OK";
+    setQ('#3ecf5e','iyi');
+    saveProfile(currentTrack);
+    return true;
+  } else {
+    // fallback: iris varsayılanı – düşük güven
+    irisMmPersonal = IRIS_INIT_MM;
+    scaleEl.textContent = `iris (varsayılan) ≈ ${irisMmPersonal.toFixed(2)} mm`;
+    modeEl.textContent = "Düşük güven";
+    setQ('#fb3','orta');
+    return false;
+  }
+}
+
+/* ---- Döngü ---- */
+let lastT=0, useRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+function schedule(){ if(!running||paused) return; if(useRVFC) vid.requestVideoFrameCallback(()=>tick()); else requestAnimationFrame(tick); }
+function tick(){
+  if(!running||paused) return;
+  const now = performance.now();
+  if (now - lastT < 1000/TARGET_FPS) return schedule();
+  lastT = now;
+
+  try{
+    ctx.drawImage(vid,0,0,cvs.width,cvs.height);
+    const res = landmarker.detectForVideo(vid, now);
+    if (res.faceLandmarks?.length){
+      const lm = res.faceLandmarks[0];
+      const L = irisCR(lm,true), R=irisCR(lm,false);
+
+      // overlay
+      ctx.fillStyle="#00ffff";
+      ctx.beginPath(); ctx.arc(L.center[0], L.center[1], 4, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(R.center[0], R.center[1], 4, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle="#00ffff"; ctx.lineWidth=2; ctx.beginPath();
+      ctx.moveTo(L.center[0], L.center[1]); ctx.lineTo(R.center[0], R.center[1]); ctx.stroke();
+
+      const ang = faceAngleQuality(lm);
+      if(!ang.ok){ setQ('#e39',`açı ${ang.angle.toFixed(0)}°`); ipdEl.textContent="IPD: —"; return schedule(); }
+
+      const eyeGapPx = dist(L.center, R.center);
+      if (irisMmPersonal && L.r>0 && R.r>0){
+        const irisRpx = 0.5*(L.r + R.r);
+        const mm = eyeGapPx * (irisMmPersonal / irisRpx);
+        const med = pushMedian(medianWin, mm, MED_N);
+        ema = (ema==null)? med : alpha*med + (1-alpha)*ema;
+        ipdEl.textContent = `IPD ≈ ${fmt(ema)} mm`;
+        const distFacePx = Math.hypot((lm[1].x-0.5)*cvs.width,(lm[1].y-0.5)*cvs.height);
+        const qDist = Math.max(0, 1 - distFacePx/(cvs.width*0.6));
+        const q = 0.6*ang.qual + 0.4*qDist;
+        setQ(q<0.4?"#e39":(q<0.7?"#fb3":"#3ecf5e"), q<0.4?"düşük":(q<0.7?"orta":"iyi"));
+      } else {
+        ipdEl.textContent = "IPD: kalibrasyon bekleniyor";
+        setQ('#fb3','orta');
+      }
+    } else {
+      ipdEl.textContent = "IPD: — (yüz yok)";
+      setQ('#e33','yok');
+    }
+  }catch(e){ console.error(e); }
+  schedule();
+}
+
+/* ---- Başlatma ---- */
+async function startAll(){
+  try{
+    starter.style.display='none';
+    log('kamera açılıyor…');
+    // önce ön kamera; auto-framing sezilirse otomatik arka kameraya geçer
+    await openCamera(false);
+    const aspect = vid.videoWidth / vid.videoHeight;
+    cvs.width=PROC_W; cvs.height=Math.round(PROC_W/aspect);
+    log('mediapipe yükleniyor…');
+    await initMP();
+    running = true; paused=false; log('otomatik kalibrasyon…');
+    // arka planda otomatik kalibrasyon (profil yoksa): ArUco → Kart → fallback
+    if (!irisMmPersonal) { await autoCalibrate(8000); }
+    // sonra loop
+    schedule();
+  }catch(e){
+    console.error(e);
+    log('Başlatılamadı: ' + e);
+    starter.style.display=''; // kullanıcı tekrar denesin
+  }
+}
+
+btnStart.onclick = startAll;
+// Bazı tarayıcılar jest ister; yine de otomatik deneyelim
+document.addEventListener('DOMContentLoaded', ()=>{ setTimeout(()=>{ startAll().catch(()=>{}); }, 300); });
 // Sekme gizlenince duraklat
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { paused = true; btnToggle.textContent = "Devam"; }
-});
+document.addEventListener('visibilitychange', ()=>{ paused = document.hidden; });
+
 </script>
 </body>
 </html>
